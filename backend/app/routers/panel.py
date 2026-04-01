@@ -1,0 +1,326 @@
+"""Admin web panel router — password-based login, full CRUD."""
+from datetime import datetime, timedelta
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app import models, schemas
+from app.config import settings
+from app.database import get_db
+
+router = APIRouter(prefix="/panel", tags=["panel"])
+_security = HTTPBearer(auto_error=False)
+_PANEL_SUBJECT = "panel_admin"
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+class PanelLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class PanelTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+def _make_panel_token() -> str:
+    expire = datetime.utcnow() + timedelta(hours=12)
+    return jwt.encode(
+        {"sub": _PANEL_SUBJECT, "exp": expire},
+        settings.secret_key,
+        algorithm="HS256",
+    )
+
+
+def require_panel(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+) -> None:
+    if not credentials:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    try:
+        payload = jwt.decode(credentials.credentials, settings.secret_key, algorithms=["HS256"])
+        if payload.get("sub") != _PANEL_SUBJECT:
+            raise ValueError
+    except (JWTError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid panel token")
+
+
+@router.post("/login", response_model=PanelTokenResponse)
+def panel_login(data: PanelLoginRequest):
+    if data.username != settings.panel_username or data.password != settings.panel_password:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Wrong credentials")
+    return PanelTokenResponse(access_token=_make_panel_token())
+
+
+# ── Stats ─────────────────────────────────────────────────────────────────────
+
+class PanelStats(BaseModel):
+    total_users: int
+    registered_users: int
+    total_products: int
+    total_announcements: int
+    total_achievements: int
+
+
+@router.get("/stats", response_model=PanelStats)
+def get_stats(_: None = Depends(require_panel), db: Session = Depends(get_db)):
+    return PanelStats(
+        total_users=db.query(models.User).count(),
+        registered_users=db.query(models.User).filter(models.User.is_registered == True).count(),
+        total_products=db.query(models.Product).filter(models.Product.is_active == True).count(),
+        total_announcements=db.query(models.Announcement).filter(models.Announcement.is_active == True).count(),
+        total_achievements=db.query(models.Achievement).filter(models.Achievement.is_active == True).count(),
+    )
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+class PanelUserOut(BaseModel):
+    id: int
+    telegram_id: int
+    username: Optional[str]
+    first_name: str
+    last_name: Optional[str]
+    full_name: Optional[str]
+    university: Optional[str]
+    course: Optional[int]
+    group: Optional[str]
+    balance: int
+    is_registered: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PanelBalanceUpdate(BaseModel):
+    amount: int
+    reason: str = "Начисление от администратора"
+
+
+@router.get("/users", response_model=List[PanelUserOut])
+def list_users(
+    search: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    q = db.query(models.User)
+    if search:
+        like = f"%{search}%"
+        q = q.filter(
+            models.User.first_name.ilike(like)
+            | models.User.last_name.ilike(like)
+            | models.User.username.ilike(like)
+            | models.User.full_name.ilike(like)
+        )
+    return q.order_by(models.User.balance.desc()).offset(skip).limit(limit).all()
+
+
+@router.patch("/users/{user_id}/balance", response_model=PanelUserOut)
+def update_balance(
+    user_id: int,
+    data: PanelBalanceUpdate,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.balance = max(0, user.balance + data.amount)
+    tx = models.Transaction(user_id=user.id, amount=data.amount, reason=data.reason, category="admin")
+    db.add(tx)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# ── Announcements ─────────────────────────────────────────────────────────────
+
+@router.get("/announcements", response_model=List[schemas.AnnouncementOut])
+def list_announcements(_: None = Depends(require_panel), db: Session = Depends(get_db)):
+    return (
+        db.query(models.Announcement)
+        .order_by(models.Announcement.sort_order, models.Announcement.created_at.desc())
+        .all()
+    )
+
+
+@router.post("/announcements", response_model=schemas.AnnouncementOut)
+def create_announcement(
+    data: schemas.AnnouncementCreate,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    ann = models.Announcement(**data.model_dump())
+    db.add(ann)
+    db.commit()
+    db.refresh(ann)
+    return ann
+
+
+@router.put("/announcements/{ann_id}", response_model=schemas.AnnouncementOut)
+def update_announcement(
+    ann_id: int,
+    data: schemas.AnnouncementUpdate,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    ann = db.query(models.Announcement).filter(models.Announcement.id == ann_id).first()
+    if not ann:
+        raise HTTPException(status_code=404, detail="Not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(ann, k, v)
+    db.commit()
+    db.refresh(ann)
+    return ann
+
+
+@router.delete("/announcements/{ann_id}")
+def delete_announcement(
+    ann_id: int,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    ann = db.query(models.Announcement).filter(models.Announcement.id == ann_id).first()
+    if not ann:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(ann)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Products ──────────────────────────────────────────────────────────────────
+
+@router.get("/products", response_model=List[schemas.ProductOut])
+def list_products(_: None = Depends(require_panel), db: Session = Depends(get_db)):
+    return db.query(models.Product).order_by(models.Product.id).all()
+
+
+@router.post("/products", response_model=schemas.ProductOut)
+def create_product(
+    data: schemas.ProductCreate,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    product = models.Product(**data.model_dump())
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@router.put("/products/{product_id}", response_model=schemas.ProductOut)
+def update_product(
+    product_id: int,
+    data: schemas.ProductUpdate,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(product, k, v)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@router.delete("/products/{product_id}")
+def delete_product(
+    product_id: int,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(product)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Achievements ──────────────────────────────────────────────────────────────
+
+@router.get("/achievements", response_model=List[schemas.AchievementOut])
+def list_achievements(_: None = Depends(require_panel), db: Session = Depends(get_db)):
+    return db.query(models.Achievement).order_by(models.Achievement.id).all()
+
+
+@router.post("/achievements", response_model=schemas.AchievementOut)
+def create_achievement(
+    data: schemas.AchievementCreate,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    ach = models.Achievement(**data.model_dump())
+    db.add(ach)
+    db.commit()
+    db.refresh(ach)
+    return ach
+
+
+@router.put("/achievements/{ach_id}", response_model=schemas.AchievementOut)
+def update_achievement(
+    ach_id: int,
+    data: schemas.AchievementCreate,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    ach = db.query(models.Achievement).filter(models.Achievement.id == ach_id).first()
+    if not ach:
+        raise HTTPException(status_code=404, detail="Not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(ach, k, v)
+    db.commit()
+    db.refresh(ach)
+    return ach
+
+
+@router.delete("/achievements/{ach_id}")
+def delete_achievement(
+    ach_id: int,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    ach = db.query(models.Achievement).filter(models.Achievement.id == ach_id).first()
+    if not ach:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(ach)
+    db.commit()
+    return {"ok": True}
+
+
+class AssignAchievementRequest(BaseModel):
+    user_id: int
+    achievement_id: int
+
+
+@router.post("/achievements/assign")
+def assign_achievement(
+    data: AssignAchievementRequest,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter(models.User.id == data.user_id).first()
+    ach = db.query(models.Achievement).filter(models.Achievement.id == data.achievement_id).first()
+    if not user or not ach:
+        raise HTTPException(status_code=404, detail="User or achievement not found")
+    existing = db.query(models.UserAchievement).filter(
+        models.UserAchievement.user_id == data.user_id,
+        models.UserAchievement.achievement_id == data.achievement_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Already assigned")
+    ua = models.UserAchievement(user_id=data.user_id, achievement_id=data.achievement_id)
+    db.add(ua)
+    db.commit()
+    return {"ok": True}

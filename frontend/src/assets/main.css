@@ -1,0 +1,147 @@
+/* ── Design tokens ────────────────────────────────────────────────────────── */
+:root {
+  --color-bg: #FFFFFF;
+  --color-bg-secondary: #F2F2F7;
+  --color-surface: #FFFFFF;
+  --color-accent: #8127E0;
+  --color-accent-dark: #40087A;
+  --color-accent-light: rgba(129, 39, 224, 0.1);
+  --color-text-primary: #000000;
+  --color-text-secondary: #707579;
+  --color-text-tertiary: rgba(84, 84, 88, 0.6);
+  --color-separator: rgba(84, 84, 88, 0.45);
+  --color-blue: #007AFF;
+  --color-green: #34C759;
+  --color-red: #FF3B30;
+  --color-orange: #FF9500;
+  --color-tab-active-bg: rgba(216, 216, 216, 0.6);
+  --color-tab-inactive: #6E6E71;
+  --color-tab-label-inactive: rgba(84, 84, 88, 0.85);
+
+  --shadow-card: 0 32px 64px rgba(0, 0, 0, 0.04), 0 0 2px 1px rgba(0, 0, 0, 0.02);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.2);
+  --shadow-nav: 0 0 10px rgba(0, 0, 0, 0.25);
+
+  --radius-card: 24px;
+  --radius-card-sm: 16px;
+  --radius-banner: 20px;
+  --radius-tab: 40px;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --nav-height: 84px;
+}
+
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  height: 100%;
+  font-family: -apple-system, 'SF Pro Text', 'SF Pro Display', BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Scrollbar hide ───────────────────────────────────────────────────────── */
+::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
+
+/* ── Typography ───────────────────────────────────────────────────────────── */
+h1 { font-size: 22px; font-weight: 590; letter-spacing: -0.24px; line-height: 1; }
+h2 { font-size: 17px; font-weight: 600; }
+h3 { font-size: 15px; font-weight: 600; }
+
+/* ── Utility ──────────────────────────────────────────────────────────────── */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 8px 12px;
+  gap: 10px;
+}
+
+.section-header__title {
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-secondary);
+  flex: 1;
+}
+
+.section-header__action {
+  font-size: 15px;
+  font-weight: 590;
+  color: var(--color-blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 16px 0 0;
+  text-decoration: none;
+  display: inline-flex;
+}
+
+/* ── Row divider ──────────────────────────────────────────────────────────── */
+.row-divider {
+  height: 0.5px;
+  background: var(--color-separator);
+  margin-left: 72px;
+}
+
+.card {
+  background: var(--color-surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.card--sm {
+  border-radius: var(--radius-card-sm);
+}
+
+/* ── Shimmer skeleton ─────────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* ── Transitions ──────────────────────────────────────────────────────────── */
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
+
+.slide-up-enter-active, .slide-up-leave-active {
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.3s ease;
+}
+.slide-up-enter-from, .slide-up-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}

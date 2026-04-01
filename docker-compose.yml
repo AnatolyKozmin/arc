@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: arkadium-backend
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key}
+      - DATABASE_URL=sqlite:////data/arkadium.db
+      - ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-}
+      - ORGANIZER_TELEGRAM_IDS=${ORGANIZER_TELEGRAM_IDS:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://arkadium.example.com}
+      - DEV_MODE=${DEV_MODE:-false}
+      - PANEL_USERNAME=${PANEL_USERNAME:-admin}
+      - PANEL_PASSWORD=${PANEL_PASSWORD:-arkadium2026}
+    volumes:
+      - db-data:/data
+    networks:
+      - arkadium_net
+      - infra_net        # виден для nginx
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: arkadium-frontend
+    depends_on:
+      - backend
+    networks:
+      - arkadium_net
+      - infra_net        # виден для nginx
+    restart: unless-stopped
+
+  bot:
+    build: ./bot
+    container_name: arkadium-bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - MINI_APP_URL=${MINI_APP_URL:-https://arkadium.example.com}
+      - API_BASE=http://arkadium-backend:8000/api
+      - PANEL_USERNAME=${PANEL_USERNAME:-admin}
+      - PANEL_PASSWORD=${PANEL_PASSWORD:-arkadium2026}
+      - ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-}
+    depends_on:
+      - backend
+    networks:
+      - arkadium_net
+    restart: unless-stopped
+
+networks:
+  arkadium_net:
+    driver: bridge
+  infra_net:
+    external: true     # уже создана в ~/infra/docker-compose.yml
+
+volumes:
+  db-data:

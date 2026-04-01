@@ -1,0 +1,135 @@
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import axios from 'axios'
+
+// Use relative URL so requests go through Vite proxy (avoids CORS issues in dev)
+const BASE = '/api'
+
+const http = axios.create({ baseURL: BASE })
+
+http.interceptors.request.use((cfg) => {
+  const token = localStorage.getItem('panel_token')
+  if (token) cfg.headers.Authorization = `Bearer ${token}`
+  return cfg
+})
+
+export const useAdminStore = defineStore('admin', () => {
+  const token = ref(localStorage.getItem('panel_token') || null)
+  const loading = ref(false)
+  const error = ref(null)
+
+  const isLoggedIn = () => !!token.value
+
+  async function login(username, password) {
+    error.value = null
+    loading.value = true
+    try {
+      const res = await http.post('/panel/login', { username, password })
+      token.value = res.data.access_token
+      localStorage.setItem('panel_token', token.value)
+      return true
+    } catch (e) {
+      error.value = e.response?.data?.detail || 'Ошибка входа'
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  function logout() {
+    token.value = null
+    localStorage.removeItem('panel_token')
+  }
+
+  // ── API helpers ──────────────────────────────────────────────────────────────
+
+  async function getStats() {
+    const r = await http.get('/panel/stats')
+    return r.data
+  }
+
+  // Users
+  async function getUsers(search = '', skip = 0, limit = 50) {
+    const r = await http.get('/panel/users', { params: { search: search || undefined, skip, limit } })
+    return r.data
+  }
+
+  async function updateBalance(userId, amount, reason) {
+    const r = await http.patch(`/panel/users/${userId}/balance`, { amount, reason })
+    return r.data
+  }
+
+  // Announcements
+  async function getAnnouncements() {
+    const r = await http.get('/panel/announcements')
+    return r.data
+  }
+
+  async function createAnnouncement(data) {
+    const r = await http.post('/panel/announcements', data)
+    return r.data
+  }
+
+  async function updateAnnouncement(id, data) {
+    const r = await http.put(`/panel/announcements/${id}`, data)
+    return r.data
+  }
+
+  async function deleteAnnouncement(id) {
+    await http.delete(`/panel/announcements/${id}`)
+  }
+
+  // Products
+  async function getProducts() {
+    const r = await http.get('/panel/products')
+    return r.data
+  }
+
+  async function createProduct(data) {
+    const r = await http.post('/panel/products', data)
+    return r.data
+  }
+
+  async function updateProduct(id, data) {
+    const r = await http.put(`/panel/products/${id}`, data)
+    return r.data
+  }
+
+  async function deleteProduct(id) {
+    await http.delete(`/panel/products/${id}`)
+  }
+
+  // Achievements
+  async function getAchievements() {
+    const r = await http.get('/panel/achievements')
+    return r.data
+  }
+
+  async function createAchievement(data) {
+    const r = await http.post('/panel/achievements', data)
+    return r.data
+  }
+
+  async function updateAchievement(id, data) {
+    const r = await http.put(`/panel/achievements/${id}`, data)
+    return r.data
+  }
+
+  async function deleteAchievement(id) {
+    await http.delete(`/panel/achievements/${id}`)
+  }
+
+  async function assignAchievement(userId, achievementId) {
+    await http.post('/panel/achievements/assign', { user_id: userId, achievement_id: achievementId })
+  }
+
+  return {
+    token, loading, error, isLoggedIn,
+    login, logout,
+    getStats,
+    getUsers, updateBalance,
+    getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
+    getProducts, createProduct, updateProduct, deleteProduct,
+    getAchievements, createAchievement, updateAchievement, deleteAchievement, assignAchievement,
+  }
+})
