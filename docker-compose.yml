@@ -1,6 +1,22 @@
 version: "3.9"
 
 services:
+  nginx:
+    image: nginx:alpine
+    container_name: arkadium-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - arkadium_net
+    restart: unless-stopped
+
   backend:
     build: ./backend
     container_name: arkadium-backend
@@ -10,7 +26,7 @@ services:
       - DATABASE_URL=sqlite:////data/arkadium.db
       - ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-}
       - ORGANIZER_TELEGRAM_IDS=${ORGANIZER_TELEGRAM_IDS:-}
-      - CORS_ORIGINS=${CORS_ORIGINS:-https://arkadium.example.com}
+      - CORS_ORIGINS=https://${DOMAIN}
       - DEV_MODE=${DEV_MODE:-false}
       - PANEL_USERNAME=${PANEL_USERNAME:-admin}
       - PANEL_PASSWORD=${PANEL_PASSWORD:-arkadium2026}
@@ -18,17 +34,13 @@ services:
       - db-data:/data
     networks:
       - arkadium_net
-      - infra_net        # виден для nginx
     restart: unless-stopped
 
   frontend:
     build: ./frontend
     container_name: arkadium-frontend
-    depends_on:
-      - backend
     networks:
       - arkadium_net
-      - infra_net        # виден для nginx
     restart: unless-stopped
 
   bot:
@@ -36,7 +48,7 @@ services:
     container_name: arkadium-bot
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
-      - MINI_APP_URL=${MINI_APP_URL:-https://arkadium.example.com}
+      - MINI_APP_URL=https://${DOMAIN}
       - API_BASE=http://arkadium-backend:8000/api
       - PANEL_USERNAME=${PANEL_USERNAME:-admin}
       - PANEL_PASSWORD=${PANEL_PASSWORD:-arkadium2026}
@@ -50,8 +62,6 @@ services:
 networks:
   arkadium_net:
     driver: bridge
-  infra_net:
-    external: true     # уже создана в ~/infra/docker-compose.yml
 
 volumes:
   db-data:
