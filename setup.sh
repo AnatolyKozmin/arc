@@ -30,10 +30,28 @@ if ! command -v certbot &> /dev/null; then
 fi
 
 # ── SSL сертификат ─────────────────────────────────────────────────────────
-if [ ! -f "certs/fullchain.crt" ]; then
-    info "Получаю SSL сертификат для $DOMAIN..."
+if [ -f "certs/fullchain.crt" ] && [ -f "certs/privkey.key" ]; then
+    info "Сертификаты найдены в certs/, пропускаю certbot."
 
-    # Останавливаем всё что занимает порт 80
+elif [ -f "certs/domain.crt" ] && [ -f "certs/privkey.key" ]; then
+    info "Найдены сертификаты от Рег.ру, собираю fullchain..."
+    # fullchain = domain.crt + ca_bundle.crt
+    if [ -f "certs/ca_bundle.crt" ]; then
+        cat certs/domain.crt certs/ca_bundle.crt > certs/fullchain.crt
+    else
+        cp certs/domain.crt certs/fullchain.crt
+    fi
+    chmod 644 certs/fullchain.crt certs/privkey.key
+    info "fullchain.crt собран!"
+
+else
+    warn "Сертификаты не найдены в certs/. Получаю через Let's Encrypt..."
+
+    if ! command -v certbot &> /dev/null; then
+        warn "Устанавливаю certbot..."
+        apt-get update -qq && apt-get install -y -qq certbot
+    fi
+
     docker stop arkadium-nginx 2>/dev/null || true
     fuser -k 80/tcp 2>/dev/null || true
 
@@ -48,8 +66,6 @@ if [ ! -f "certs/fullchain.crt" ]; then
     cp /etc/letsencrypt/live/$DOMAIN/privkey.pem   certs/privkey.key
     chmod 644 certs/fullchain.crt certs/privkey.key
     info "Сертификат получен!"
-else
-    info "Сертификат уже есть, пропускаю..."
 fi
 
 # ── Генерация nginx конфига ────────────────────────────────────────────────
