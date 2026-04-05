@@ -14,16 +14,8 @@
         <DevPanel />
       </template>
 
-      <!-- Loading -->
-      <template v-else-if="userStore.loading">
-        <div class="app-loading">
-          <div class="app-loading__logo"><ArcadiumIcon /></div>
-          <p>Загружаем...</p>
-        </div>
-      </template>
-
-      <!-- Not in Telegram and no dev mode -->
-      <template v-else-if="!userStore.isAuthenticated">
+      <!-- Not in Telegram and not dev mode (auth failed without dev) -->
+      <template v-else-if="!userStore.loading && !userStore.devMode && !userStore.isAuthenticated">
         <div class="app-loading">
           <div class="app-loading__logo"><ArcadiumIcon /></div>
           <template v-if="userStore.error">
@@ -38,12 +30,12 @@
         </div>
       </template>
 
-      <!-- Registration -->
-      <template v-else-if="!userStore.isRegistered">
+      <!-- Registration (only after auth confirmed) -->
+      <template v-else-if="userStore.isAuthenticated && !userStore.isRegistered">
         <RegisterView />
       </template>
 
-      <!-- Main app -->
+      <!-- Main app — show immediately, nav + content appear right away -->
       <template v-else>
         <main class="app-content">
           <RouterView v-slot="{ Component }">
@@ -55,7 +47,7 @@
         <BottomNav />
 
         <!-- Dev logout button -->
-        <button v-if="isDev" class="dev-logout" @click="userStore.logout()" title="Dev: сменить пользователя">
+        <button v-if="isDev && userStore.isAuthenticated" class="dev-logout" @click="userStore.logout()" title="Dev: сменить пользователя">
           ⚙️
         </button>
       </template>

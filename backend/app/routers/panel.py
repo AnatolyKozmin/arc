@@ -348,15 +348,24 @@ class ScannedUserOut(BaseModel):
         from_attributes = True
 
 
-@router.get("/scan/{qr_token}", response_model=ScannedUserOut)
+@router.get("/scan/{identifier}", response_model=ScannedUserOut)
 def scan_qr(
-    qr_token: str,
+    identifier: str,
     _: None = Depends(require_panel),
     db: Session = Depends(get_db),
 ):
-    user = db.query(models.User).filter(models.User.qr_token == qr_token).first()
+    """Look up user by telegram_id (from QR) or qr_token (legacy)."""
+    user = None
+    # Try telegram_id first (numeric string)
+    if identifier.isdigit():
+        user = db.query(models.User).filter(
+            models.User.telegram_id == int(identifier)
+        ).first()
+    # Fallback: try qr_token UUID
     if not user:
-        raise HTTPException(status_code=404, detail="QR код не найден")
+        user = db.query(models.User).filter(models.User.qr_token == identifier).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
     return user
 
 

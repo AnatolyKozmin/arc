@@ -54,6 +54,29 @@ def list_users(
     return db.query(models.User).offset(skip).limit(limit).all()
 
 
+@router.get("/scan/{identifier}", response_model=schemas.UserOut)
+def scan_user_qr(
+    identifier: str,
+    operator: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mini-app scan endpoint: look up user by telegram_id from QR code.
+    Requires organizer or admin role."""
+    if operator.role not in ("organizer", "admin"):
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    user = None
+    if identifier.isdigit():
+        user = db.query(models.User).filter(
+            models.User.telegram_id == int(identifier)
+        ).first()
+    if not user:
+        user = db.query(models.User).filter(models.User.qr_token == identifier).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    return user
+
+
 @router.get("/{user_id}", response_model=schemas.UserOut)
 def get_user(
     user_id: int,

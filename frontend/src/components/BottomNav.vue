@@ -1,15 +1,14 @@
 <template>
   <nav class="bottom-nav">
-    <!-- Sliding indicator -->
+    <!-- Sliding indicator pill -->
     <div class="bottom-nav__indicator" :style="indicatorStyle" />
 
     <RouterLink
-      v-for="(tab, idx) in tabs"
+      v-for="tab in tabs"
       :key="tab.to"
       :to="tab.to"
       class="bottom-nav__item"
       :class="{ 'bottom-nav__item--active': isActive(tab.to) }"
-      :ref="el => { if (el) itemRefs[idx] = el }"
     >
       <div class="bottom-nav__icon-wrap">
         <template v-if="tab.to === '/profile'">
@@ -39,7 +38,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import IconHome from '@/components/icons/IconHome.vue'
@@ -67,45 +66,17 @@ function isActive(path) {
   return route.path.startsWith(path)
 }
 
-// ── Sliding indicator ──────────────────────────────────────────────────────
-const itemRefs = ref([])
-const indicatorStyle = ref({ transform: 'translateX(0px)', width: '0px' })
-const ready = ref(false)
-
-function updateIndicator() {
-  const activeIdx = tabs.value.findIndex(t => isActive(t.to))
-  if (activeIdx < 0) return
-  const el = itemRefs.value[activeIdx]?.$el ?? itemRefs.value[activeIdx]
-  if (!el) return
-  const navEl = el.closest('.bottom-nav')
-  if (!navEl) return
-  const navRect = navEl.getBoundingClientRect()
-  const elRect = el.getBoundingClientRect()
-  indicatorStyle.value = {
-    transform: `translateX(${elRect.left - navRect.left}px)`,
-    width: `${elRect.width}px`,
-    opacity: ready.value ? '1' : '0',
+// ── Pure-CSS indicator: no DOM measurements, based on flex layout ──────────
+// Nav has padding: 5px on all sides, each item is flex:1
+// Item at index `idx` of `n` total → starts at 5px + idx * ((100% - 10px) / n)
+const indicatorStyle = computed(() => {
+  const n = tabs.value.length
+  const idx = tabs.value.findIndex(t => isActive(t.to))
+  const activeIdx = idx >= 0 ? idx : 0
+  return {
+    left: `calc(5px + ${activeIdx} * ((100% - 10px) / ${n}))`,
+    width: `calc((100% - 10px) / ${n})`,
   }
-}
-
-watch(() => route.path, async () => {
-  await nextTick()
-  updateIndicator()
-})
-
-watch(tabs, async () => {
-  await nextTick()
-  updateIndicator()
-})
-
-onMounted(async () => {
-  await nextTick()
-  // No transition on first render
-  indicatorStyle.value = { ...indicatorStyle.value, transition: 'none' }
-  updateIndicator()
-  await nextTick()
-  ready.value = true
-  indicatorStyle.value = { ...indicatorStyle.value, transition: 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1), width 0.3s cubic-bezier(0.34,1.56,0.64,1)' }
 })
 </script>
 
@@ -132,8 +103,7 @@ onMounted(async () => {
   border-radius: 40px;
   background: rgba(216, 216, 216, 0.6);
   pointer-events: none;
-  will-change: transform, width;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+  transition: left 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
               width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -182,6 +152,10 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.bottom-nav__avatar { transition: box-shadow 0.2s; }
-.bottom-nav__avatar--active { box-shadow: 0 0 0 2px #8127E0; }
+.bottom-nav__avatar {
+  transition: box-shadow 0.2s;
+}
+.bottom-nav__avatar--active {
+  box-shadow: 0 0 0 2px #8127E0;
+}
 </style>

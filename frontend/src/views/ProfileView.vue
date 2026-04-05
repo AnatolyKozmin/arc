@@ -249,8 +249,9 @@ async function claimAchievement(ua) {
 
 async function renderQr() {
   await nextTick()
-  if (!qrCanvas.value || !userStore.user?.qr_token) return
-  await QRCode.toCanvas(qrCanvas.value, userStore.user.qr_token, {
+  const tgId = userStore.user?.telegram_id
+  if (!qrCanvas.value || !tgId) return
+  await QRCode.toCanvas(qrCanvas.value, String(tgId), {
     width: 220,
     margin: 2,
     color: { dark: '#000000', light: '#ffffff' },

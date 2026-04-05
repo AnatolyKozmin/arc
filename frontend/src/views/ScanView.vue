@@ -127,7 +127,7 @@ async function lookupToken(token) {
   scanning.value = true
   error.value = null
   try {
-    const res = await axios.get(`/api/panel/scan/${token}`, { headers: getAuthHeader() })
+    const res = await axios.get(`/api/users/scan/${token}`, { headers: getAuthHeader() })
     scannedUser.value = res.data
   } catch (e) {
     error.value = e.response?.data?.detail || 'QR-код не найден'
