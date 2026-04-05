@@ -16,7 +16,10 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Only reload on 401 for protected endpoints (not auth itself)
+    const url = error.config?.url ?? ''
+    const isAuthEndpoint = url.includes('/auth/')
+    if (error.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('ark_token')
       window.location.reload()
     }

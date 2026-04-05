@@ -26,7 +26,15 @@
       <template v-else-if="!userStore.isAuthenticated">
         <div class="app-loading">
           <div class="app-loading__logo"><ArcadiumIcon /></div>
-          <p>Откройте через Telegram</p>
+          <template v-if="userStore.error">
+            <p style="color:#ff3b30;font-size:13px;text-align:center;padding:0 24px">
+              {{ userStore.error }}
+            </p>
+            <p style="color:#aaa;font-size:11px">Проверь настройки бота</p>
+          </template>
+          <template v-else>
+            <p>Откройте через Telegram</p>
+          </template>
         </div>
       </template>
 

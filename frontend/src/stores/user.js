@@ -37,7 +37,9 @@ export const useUserStore = defineStore('user', () => {
       }
       // If no initData and no stored token → devMode panel will show
     } catch (e) {
-      error.value = e.message
+      const detail = e.response?.data?.detail ?? e.message ?? 'Ошибка авторизации'
+      error.value = detail
+      console.error('[auth]', detail, e)
     } finally {
       loading.value = false
     }
