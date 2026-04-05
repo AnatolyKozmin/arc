@@ -1,3 +1,4 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -32,10 +33,17 @@ def telegram_auth(payload: schemas.TelegramAuthRequest, db: Session = Depends(ge
             last_name=tg_user.get("last_name"),
             username=tg_user.get("username"),
             photo_url=tg_user.get("photo_url"),
+            qr_token=str(uuid.uuid4()),
         )
         db.add(user)
         db.commit()
         db.refresh(user)
+    else:
+        # Backfill qr_token for existing users that don't have one
+        if not user.qr_token:
+            user.qr_token = str(uuid.uuid4())
+            db.commit()
+            db.refresh(user)
 
     token = create_access_token(telegram_id)
     return schemas.TokenResponse(access_token=token, user=user)
@@ -76,6 +84,7 @@ def dev_auth(payload: DevAuthRequest, db: Session = Depends(get_db)):
             first_name=payload.first_name,
             last_name=payload.last_name,
             username=payload.username,
+            qr_token=str(uuid.uuid4()),
         )
         db.add(user)
         db.commit()
@@ -84,6 +93,8 @@ def dev_auth(payload: DevAuthRequest, db: Session = Depends(get_db)):
         user.first_name = payload.first_name
         user.last_name = payload.last_name
         user.username = payload.username
+        if not user.qr_token:
+            user.qr_token = str(uuid.uuid4())
         db.commit()
         db.refresh(user)
 

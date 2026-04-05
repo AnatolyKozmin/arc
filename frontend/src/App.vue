@@ -47,7 +47,7 @@
       <template v-else>
         <main class="app-content">
           <RouterView v-slot="{ Component }">
-            <Transition :name="transitionName" mode="out-in">
+            <Transition name="fade" mode="out-in">
               <component :is="Component" :key="$route.name" />
             </Transition>
           </RouterView>
@@ -65,8 +65,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-import { RouterView, useRoute, useRouter } from 'vue-router'
+import { computed, onMounted } from 'vue'
+import { RouterView, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import BottomNav from '@/components/BottomNav.vue'
 import RegisterView from '@/views/RegisterView.vue'
@@ -78,18 +78,6 @@ const route = useRoute()
 const isDev = import.meta.env.DEV
 
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
-
-// Tab order for slide direction
-const TAB_ORDER = ['/', '/top', '/shop', '/profile', '/scan']
-const transitionName = ref('slide-left')
-let prevPath = '/'
-
-watch(() => route.path, (to, from) => {
-  const toIdx  = TAB_ORDER.findIndex(p => p === '/' ? to === '/' : to.startsWith(p))
-  const fromIdx = TAB_ORDER.findIndex(p => p === '/' ? from === '/' : from.startsWith(p))
-  transitionName.value = toIdx >= fromIdx ? 'slide-left' : 'slide-right'
-  prevPath = from
-})
 
 onMounted(() => {
   if (!isAdminRoute.value) userStore.init()
@@ -110,7 +98,6 @@ onMounted(() => {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior-y: contain;
-  position: relative;
 }
 
 .app-loading {
@@ -156,18 +143,13 @@ onMounted(() => {
 
 .dev-logout:active { opacity: 0.6; }
 
-/* ── Page transitions ─────────────────────────── */
-.slide-left-enter-active,
-.slide-left-leave-active,
-.slide-right-enter-active,
-.slide-right-leave-active {
-  transition: all 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  position: absolute;
-  width: 100%;
+/* ── Page fade transition ─────────────────────────── */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.18s ease;
 }
-
-.slide-left-enter-from  { transform: translateX(40px);  opacity: 0; }
-.slide-left-leave-to    { transform: translateX(-40px); opacity: 0; }
-.slide-right-enter-from { transform: translateX(-40px); opacity: 0; }
-.slide-right-leave-to   { transform: translateX(40px);  opacity: 0; }
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
 </style>

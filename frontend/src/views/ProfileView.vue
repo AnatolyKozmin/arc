@@ -6,24 +6,51 @@
       :initials="userStore.getInitials()"
     />
 
-    <!-- ── QR-код ───────────────────────────────────────────────────── -->
+    <!-- ── QR-код (compact tap-to-open) ────────────────────────────── -->
     <section class="profile__section">
       <div class="qr-block">
-        <div class="qr-block__card">
-          <div class="qr-block__left">
-            <canvas ref="qrCanvas" class="qr-block__canvas" />
+        <button class="qr-banner" @click="openQr">
+          <div class="qr-banner__icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+              <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+              <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+              <path d="M14 14h2v2h-2zM18 14h3M14 18h2M18 18h3v3M21 14v2"/>
+            </svg>
           </div>
-          <div class="qr-block__right">
-            <p class="qr-block__title">Мой QR-код</p>
-            <p class="qr-block__hint">Покажи организатору для начисления аркоинов</p>
-            <div class="qr-block__balance">
-              <span>{{ (userStore.user?.balance ?? 0).toLocaleString('ru') }}</span>
-              <img src="@/assets/icons/icon-arcoin.svg" width="18" height="18" alt="" />
-            </div>
+          <div class="qr-banner__text">
+            <p class="qr-banner__title">Мой QR-код</p>
+            <p class="qr-banner__hint">Покажи организатору для начисления аркоинов</p>
           </div>
-        </div>
+          <div class="qr-banner__arrow">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+        </button>
       </div>
     </section>
+
+    <!-- QR Bottom Sheet -->
+    <Teleport to="body">
+      <Transition name="sheet">
+        <div v-if="showQr" class="qr-sheet-overlay" @click.self="closeQr">
+          <div class="qr-sheet">
+            <div class="qr-sheet__handle" />
+            <p class="qr-sheet__title">Мой QR-код</p>
+            <p class="qr-sheet__hint">Покажи организатору для начисления аркоинов</p>
+            <div class="qr-sheet__canvas-wrap">
+              <canvas ref="qrCanvas" class="qr-sheet__canvas" />
+            </div>
+            <div class="qr-sheet__balance">
+              <span>{{ (userStore.user?.balance ?? 0).toLocaleString('ru') }}</span>
+              <img src="@/assets/icons/icon-arcoin.svg" width="22" height="22" alt="" />
+            </div>
+            <button class="qr-sheet__close" @click="closeQr">Закрыть</button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- ── Персонаж ─────────────────────────────────────────────────── -->
     <section class="profile__section">
@@ -158,6 +185,7 @@ const previewChar = ref(null)
 const saving = ref(false)
 const scrollRef = ref(null)
 const qrCanvas = ref(null)
+const showQr = ref(false)
 
 const characters = [
   {
@@ -220,12 +248,24 @@ async function claimAchievement(ua) {
 }
 
 async function renderQr() {
+  await nextTick()
   if (!qrCanvas.value || !userStore.user?.qr_token) return
   await QRCode.toCanvas(qrCanvas.value, userStore.user.qr_token, {
-    width: 90,
-    margin: 1,
+    width: 220,
+    margin: 2,
     color: { dark: '#000000', light: '#ffffff' },
   })
+}
+
+async function openQr() {
+  window.Telegram?.WebApp?.HapticFeedback?.impactOccurred('light')
+  showQr.value = true
+  await nextTick()
+  await renderQr()
+}
+
+function closeQr() {
+  showQr.value = false
 }
 
 onMounted(async () => {
@@ -236,13 +276,6 @@ onMounted(async () => {
   } finally {
     achievementsLoading.value = false
   }
-  await nextTick()
-  await renderQr()
-})
-
-watch(() => userStore.user?.qr_token, async () => {
-  await nextTick()
-  await renderQr()
 })
 </script>
 
@@ -516,62 +549,156 @@ watch(() => userStore.user?.qr_token, async () => {
   margin-left: 56px;
 }
 
-/* ── QR Block ────────────────────────────────────── */
+/* ── QR Banner (compact tap button) ─────────────── */
 .qr-block {
   padding: 4px 16px 12px;
 }
 
-.qr-block__card {
-  background: linear-gradient(135deg, #8127E0 0%, #a855f7 100%);
-  border-radius: 20px;
-  padding: 16px;
+.qr-banner {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
+  background: linear-gradient(135deg, #8127E0 0%, #a855f7 100%);
+  border: none;
+  border-radius: 20px;
+  padding: 16px 18px;
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 0.15s;
 }
+.qr-banner:active { opacity: 0.85; }
 
-.qr-block__left {
+.qr-banner__icon {
+  width: 48px;
+  height: 48px;
   flex-shrink: 0;
-  background: #fff;
-  border-radius: 12px;
-  padding: 6px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 14px;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
 }
 
-.qr-block__canvas {
-  border-radius: 8px;
-  display: block;
-  width: 90px !important;
-  height: 90px !important;
-}
+.qr-banner__text { flex: 1; }
 
-.qr-block__right {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.qr-block__title {
+.qr-banner__title {
   font-size: 16px;
   font-weight: 700;
   color: #fff;
+  margin: 0 0 3px;
 }
 
-.qr-block__hint {
+.qr-banner__hint {
   font-size: 12px;
   color: rgba(255,255,255,0.75);
-  line-height: 1.4;
+  line-height: 1.35;
+  margin: 0;
 }
 
-.qr-block__balance {
+.qr-banner__arrow {
+  color: rgba(255,255,255,0.7);
+  flex-shrink: 0;
+}
+
+/* ── QR Bottom Sheet ─────────────────────────────── */
+.qr-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
+}
+
+.qr-sheet {
+  width: 100%;
+  background: #fff;
+  border-radius: 24px 24px 0 0;
+  padding: 12px 24px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.qr-sheet__handle {
+  width: 40px;
+  height: 4px;
+  background: rgba(84,84,88,0.22);
+  border-radius: 2px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.qr-sheet__title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #000;
+  margin: 0;
+}
+
+.qr-sheet__hint {
+  font-size: 13px;
+  color: #707579;
+  line-height: 1.4;
+  text-align: center;
+  margin: 0;
+}
+
+.qr-sheet__canvas-wrap {
+  background: #fff;
+  border-radius: 16px;
+  padding: 12px;
+  box-shadow: 0 2px 20px rgba(0,0,0,0.12);
+  margin: 6px 0;
+}
+
+.qr-sheet__canvas {
+  display: block;
+  width: 220px !important;
+  height: 220px !important;
+}
+
+.qr-sheet__balance {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 6px;
-  font-size: 18px;
+  gap: 6px;
+  font-size: 22px;
   font-weight: 700;
-  color: #fff;
+  color: #8127E0;
+}
+
+.qr-sheet__close {
+  margin-top: 4px;
+  width: 100%;
+  padding: 14px;
+  background: rgba(129,39,224,0.1);
+  color: #8127E0;
+  border: none;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.qr-sheet__close:active { background: rgba(129,39,224,0.2); }
+
+/* ── Sheet enter/leave transition ──────────────── */
+.sheet-enter-active, .sheet-leave-active {
+  transition: opacity 0.25s ease;
+}
+.sheet-enter-active .qr-sheet,
+.sheet-leave-active .qr-sheet {
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.sheet-enter-from, .sheet-leave-to {
+  opacity: 0;
+}
+.sheet-enter-from .qr-sheet,
+.sheet-leave-to .qr-sheet {
+  transform: translateY(100%);
 }
 
 .profile__empty {
