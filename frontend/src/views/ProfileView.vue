@@ -6,6 +6,25 @@
       :initials="userStore.getInitials()"
     />
 
+    <!-- ── QR-код ───────────────────────────────────────────────────── -->
+    <section class="profile__section">
+      <div class="qr-block">
+        <div class="qr-block__card">
+          <div class="qr-block__left">
+            <canvas ref="qrCanvas" class="qr-block__canvas" />
+          </div>
+          <div class="qr-block__right">
+            <p class="qr-block__title">Мой QR-код</p>
+            <p class="qr-block__hint">Покажи организатору для начисления аркоинов</p>
+            <div class="qr-block__balance">
+              <span>{{ (userStore.user?.balance ?? 0).toLocaleString('ru') }}</span>
+              <img src="@/assets/icons/icon-arcoin.svg" width="18" height="18" alt="" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ── Персонаж ─────────────────────────────────────────────────── -->
     <section class="profile__section">
       <div class="section-header">
@@ -69,19 +88,6 @@
           class="chars-dots__dot"
           :class="{ 'chars-dots__dot--active': userStore.user?.character_id === char.id }"
         />
-      </div>
-    </section>
-
-    <!-- ── QR-код ───────────────────────────────────────────────────── -->
-    <section class="profile__section">
-      <div class="section-header">
-        <span class="section-header__title">Мой QR-код</span>
-      </div>
-      <div class="qr-block">
-        <div class="qr-block__card">
-          <canvas ref="qrCanvas" class="qr-block__canvas" />
-          <p class="qr-block__hint">Покажи организатору для начисления аркоинов</p>
-        </div>
       </div>
     </section>
 
@@ -216,8 +222,8 @@ async function claimAchievement(ua) {
 async function renderQr() {
   if (!qrCanvas.value || !userStore.user?.qr_token) return
   await QRCode.toCanvas(qrCanvas.value, userStore.user.qr_token, {
-    width: 200,
-    margin: 2,
+    width: 90,
+    margin: 1,
     color: { dark: '#000000', light: '#ffffff' },
   })
 }
@@ -516,26 +522,56 @@ watch(() => userStore.user?.qr_token, async () => {
 }
 
 .qr-block__card {
-  background: #fff;
+  background: linear-gradient(135deg, #8127E0 0%, #a855f7 100%);
   border-radius: 20px;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
-  padding: 20px;
+  padding: 16px;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+}
+
+.qr-block__left {
+  flex-shrink: 0;
+  background: #fff;
+  border-radius: 12px;
+  padding: 6px;
+  display: flex;
 }
 
 .qr-block__canvas {
-  border-radius: 12px;
+  border-radius: 8px;
   display: block;
+  width: 90px !important;
+  height: 90px !important;
+}
+
+.qr-block__right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qr-block__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
 }
 
 .qr-block__hint {
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  text-align: center;
+  font-size: 12px;
+  color: rgba(255,255,255,0.75);
   line-height: 1.4;
+}
+
+.qr-block__balance {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
 }
 
 .profile__empty {

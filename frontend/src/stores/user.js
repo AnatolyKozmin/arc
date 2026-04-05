@@ -7,7 +7,8 @@ const IS_DEV = import.meta.env.DEV
 export const useUserStore = defineStore('user', () => {
   const user = ref(null)
   const token = ref(localStorage.getItem('ark_token'))
-  const loading = ref(false)
+  // Start as true so we don't flash "Откройте через Telegram" on first load
+  const loading = ref(true)
   const error = ref(null)
   const devMode = ref(IS_DEV && !window.Telegram?.WebApp?.initData)
 
@@ -17,29 +18,29 @@ export const useUserStore = defineStore('user', () => {
   const isOrganizer = computed(() => ['admin', 'organizer'].includes(user.value?.role))
 
   async function init() {
-    // If already have a token (e.g. page reload), just re-fetch user
-    if (token.value) {
-      await fetchMe()
-      if (user.value) return
-    }
+    loading.value = true
+    try {
+      // If already have a token (e.g. page reload), just re-fetch user
+      if (token.value) {
+        await fetchMe()
+        if (user.value) return
+      }
 
-    const tg = window.Telegram?.WebApp
-    if (tg?.initData) {
-      tg.ready()
-      tg.expand()
-      try {
-        loading.value = true
+      const tg = window.Telegram?.WebApp
+      if (tg?.initData) {
+        tg.ready()
+        tg.expand()
         const res = await authApi.telegram(tg.initData)
         token.value = res.data.access_token
         localStorage.setItem('ark_token', token.value)
         user.value = res.data.user
-      } catch (e) {
-        error.value = e.message
-      } finally {
-        loading.value = false
       }
+      // If no initData and no stored token → devMode panel will show
+    } catch (e) {
+      error.value = e.message
+    } finally {
+      loading.value = false
     }
-    // If no initData and no stored token → devMode panel will show
   }
 
   async function devLogin(params) {
