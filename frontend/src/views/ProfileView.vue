@@ -72,6 +72,19 @@
       </div>
     </section>
 
+    <!-- ── QR-код ───────────────────────────────────────────────────── -->
+    <section class="profile__section">
+      <div class="section-header">
+        <span class="section-header__title">Мой QR-код</span>
+      </div>
+      <div class="qr-block">
+        <div class="qr-block__card">
+          <canvas ref="qrCanvas" class="qr-block__canvas" />
+          <p class="qr-block__hint">Покажи организатору для начисления аркоинов</p>
+        </div>
+      </div>
+    </section>
+
     <!-- ── Достижения ────────────────────────────────────────────────── -->
     <section class="profile__section">
       <div class="section-header">
@@ -121,7 +134,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
+import QRCode from 'qrcode'
 import { useUserStore } from '@/stores/user'
 import { achievementsApi } from '@/api/client'
 import AppHeader from '@/components/AppHeader.vue'
@@ -137,6 +151,7 @@ const achievementsLoading = ref(false)
 const previewChar = ref(null)
 const saving = ref(false)
 const scrollRef = ref(null)
+const qrCanvas = ref(null)
 
 const characters = [
   {
@@ -198,6 +213,15 @@ async function claimAchievement(ua) {
   }
 }
 
+async function renderQr() {
+  if (!qrCanvas.value || !userStore.user?.qr_token) return
+  await QRCode.toCanvas(qrCanvas.value, userStore.user.qr_token, {
+    width: 200,
+    margin: 2,
+    color: { dark: '#000000', light: '#ffffff' },
+  })
+}
+
 onMounted(async () => {
   achievementsLoading.value = true
   try {
@@ -206,6 +230,13 @@ onMounted(async () => {
   } finally {
     achievementsLoading.value = false
   }
+  await nextTick()
+  await renderQr()
+})
+
+watch(() => userStore.user?.qr_token, async () => {
+  await nextTick()
+  await renderQr()
 })
 </script>
 
@@ -477,6 +508,34 @@ onMounted(async () => {
   height: 0.5px;
   background: rgba(84, 84, 88, 0.45);
   margin-left: 56px;
+}
+
+/* ── QR Block ────────────────────────────────────── */
+.qr-block {
+  padding: 4px 16px 12px;
+}
+
+.qr-block__card {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.qr-block__canvas {
+  border-radius: 12px;
+  display: block;
+}
+
+.qr-block__hint {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  text-align: center;
+  line-height: 1.4;
 }
 
 .profile__empty {

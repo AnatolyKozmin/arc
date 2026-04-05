@@ -3,6 +3,7 @@ import HomeView from '@/views/HomeView.vue'
 import TopView from '@/views/TopView.vue'
 import ShopView from '@/views/ShopView.vue'
 import ProfileView from '@/views/ProfileView.vue'
+import ScanView from '@/views/ScanView.vue'
 
 // Lazy-load admin views
 const AdminLogin = () => import('@/views/admin/AdminLogin.vue')
@@ -12,6 +13,7 @@ const AdminUsers = () => import('@/views/admin/AdminUsers.vue')
 const AdminAnnouncements = () => import('@/views/admin/AdminAnnouncements.vue')
 const AdminProducts = () => import('@/views/admin/AdminProducts.vue')
 const AdminAchievements = () => import('@/views/admin/AdminAchievements.vue')
+const AdminAdmins = () => import('@/views/admin/AdminAdmins.vue')
 
 const routes = [
   // Mobile app routes
@@ -19,6 +21,7 @@ const routes = [
   { path: '/top', name: 'top', component: TopView },
   { path: '/shop', name: 'shop', component: ShopView },
   { path: '/profile', name: 'profile', component: ProfileView },
+  { path: '/scan', name: 'scan', component: ScanView },
 
   // Admin panel
   { path: '/admin/login', name: 'admin-login', component: AdminLogin },
@@ -32,6 +35,7 @@ const routes = [
       { path: 'announcements', name: 'admin-announcements', component: AdminAnnouncements },
       { path: 'products', name: 'admin-products', component: AdminProducts },
       { path: 'achievements', name: 'admin-achievements', component: AdminAchievements },
+      { path: 'admins', name: 'admin-admins', component: AdminAdmins },
     ],
   },
 ]

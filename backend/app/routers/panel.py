@@ -324,3 +324,94 @@ def assign_achievement(
     db.add(ua)
     db.commit()
     return {"ok": True}
+
+
+# ── QR Scan ───────────────────────────────────────────────────────────────────
+
+class ScannedUserOut(BaseModel):
+    id: int
+    telegram_id: int
+    username: Optional[str]
+    first_name: str
+    last_name: Optional[str]
+    full_name: Optional[str]
+    university: Optional[str]
+    course: Optional[int]
+    group: Optional[str]
+    balance: int
+    character_id: Optional[int]
+    photo_url: Optional[str]
+    is_registered: bool
+    qr_token: str
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/scan/{qr_token}", response_model=ScannedUserOut)
+def scan_qr(
+    qr_token: str,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter(models.User.qr_token == qr_token).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="QR код не найден")
+    return user
+
+
+# ── Admins management ─────────────────────────────────────────────────────────
+
+class AdminUserOut(BaseModel):
+    id: int
+    telegram_id: int
+    added_by: Optional[int]
+    note: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AddAdminRequest(BaseModel):
+    telegram_id: int
+    note: Optional[str] = None
+
+
+@router.get("/admins", response_model=List[AdminUserOut])
+def list_admins(_: None = Depends(require_panel), db: Session = Depends(get_db)):
+    return db.query(models.AdminUser).order_by(models.AdminUser.created_at.desc()).all()
+
+
+@router.post("/admins", response_model=AdminUserOut)
+def add_admin(
+    data: AddAdminRequest,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    existing = db.query(models.AdminUser).filter(
+        models.AdminUser.telegram_id == data.telegram_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Уже является администратором")
+    admin = models.AdminUser(telegram_id=data.telegram_id, note=data.note)
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+    return admin
+
+
+@router.delete("/admins/{telegram_id}")
+def remove_admin(
+    telegram_id: int,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    admin = db.query(models.AdminUser).filter(
+        models.AdminUser.telegram_id == telegram_id
+    ).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="Не найден")
+    db.delete(admin)
+    db.commit()
+    return {"ok": True}

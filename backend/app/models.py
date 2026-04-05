@@ -1,7 +1,19 @@
+import uuid
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
+
+
+class AdminUser(Base):
+    """Admins managed via the web panel (in addition to .env ADMIN_TELEGRAM_IDS)."""
+    __tablename__ = "admin_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    telegram_id = Column(Integer, unique=True, index=True, nullable=False)
+    added_by = Column(Integer, nullable=True)  # telegram_id of who added
+    note = Column(String(200), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class User(Base):
@@ -20,6 +32,7 @@ class User(Base):
     character_id = Column(Integer, nullable=True)
     photo_url = Column(String(500), nullable=True)
     is_registered = Column(Boolean, default=False)
+    qr_token = Column(String(36), unique=True, index=True, default=lambda: str(uuid.uuid4()))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -29,8 +42,20 @@ class User(Base):
     @property
     def role(self):
         from app.config import settings
+        from app.database import SessionLocal
         if self.telegram_id in settings.admin_telegram_ids:
             return "admin"
+        # Check DB admins
+        try:
+            db = SessionLocal()
+            is_db_admin = db.query(AdminUser).filter(
+                AdminUser.telegram_id == self.telegram_id
+            ).first() is not None
+            db.close()
+            if is_db_admin:
+                return "admin"
+        except Exception:
+            pass
         if self.telegram_id in settings.organizer_telegram_ids:
             return "organizer"
         return "user"

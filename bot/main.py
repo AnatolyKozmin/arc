@@ -35,6 +35,32 @@ PANEL_PASS   = os.getenv("PANEL_PASSWORD", "arkadium2026")
 ADMIN_IDS_RAW = os.getenv("ADMIN_TELEGRAM_IDS", "")
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_RAW.split(",") if x.strip()]
 
+_db_admin_cache: set[int] = set()
+_cache_ts: float = 0
+
+
+async def get_db_admins() -> set[int]:
+    """Fetch DB admins with 60s cache."""
+    import time
+    global _db_admin_cache, _cache_ts
+    if time.time() - _cache_ts < 60:
+        return _db_admin_cache
+    try:
+        token = await get_panel_token()
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                f"{API_BASE}/panel/admins",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            ids = {a["telegram_id"] for a in r.json()}
+            _db_admin_cache = ids
+            _cache_ts = time.time()
+            return ids
+    except Exception:
+        return _db_admin_cache
+
 router = Router()
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,8 +101,11 @@ async def api_patch(path: str, payload: dict) -> dict:
         return r.json()
 
 
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+async def is_admin(user_id: int) -> bool:
+    if user_id in ADMIN_IDS:
+        return True
+    db_admins = await get_db_admins()
+    return user_id in db_admins
 
 
 def mini_app_kb() -> InlineKeyboardMarkup:
@@ -122,7 +151,7 @@ async def cmd_start(msg: Message):
         "Добро пожаловать в <b>Аркадиум 2026</b> — квест на мероприятии.\n\n"
         "Выбирай персонажа, выполняй задания, зарабатывай аркоины и попадай в топ!"
     )
-    if is_admin(msg.from_user.id):
+    if await is_admin(msg.from_user.id):
         await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
     else:
         await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=mini_app_kb())
@@ -132,7 +161,7 @@ async def cmd_start(msg: Message):
 
 @router.message(Command("admin"))
 async def cmd_admin(msg: Message):
-    if not is_admin(msg.from_user.id):
+    if not await is_admin(msg.from_user.id):
         return await msg.answer("⛔ Нет доступа.")
     await msg.answer("🛠 Панель администратора", reply_markup=admin_menu_kb())
 
@@ -142,7 +171,7 @@ async def cmd_admin(msg: Message):
 @router.message(F.text == "📊 Статистика")
 @router.message(Command("stats"))
 async def cmd_stats(msg: Message):
-    if not is_admin(msg.from_user.id):
+    if not await is_admin(msg.from_user.id):
         return
     try:
         data = await api_get("/panel/stats")
@@ -164,7 +193,7 @@ async def cmd_stats(msg: Message):
 @router.message(F.text == "👥 Пользователи")
 @router.message(Command("users"))
 async def cmd_users(msg: Message):
-    if not is_admin(msg.from_user.id):
+    if not await is_admin(msg.from_user.id):
         return
     try:
         data = await api_get("/panel/users?limit=10")
@@ -184,7 +213,7 @@ async def cmd_users(msg: Message):
 @router.message(F.text == "📢 Рассылка")
 @router.message(Command("broadcast"))
 async def cmd_broadcast_start(msg: Message, state: FSMContext):
-    if not is_admin(msg.from_user.id):
+    if not await is_admin(msg.from_user.id):
         return
     await state.set_state(BroadcastState.waiting_text)
     await msg.answer(
@@ -254,7 +283,7 @@ async def broadcast_confirm(msg: Message, state: FSMContext, bot: Bot):
 @router.message(F.text == "💰 Начислить монеты")
 @router.message(Command("addcoins"))
 async def cmd_addcoins_start(msg: Message, state: FSMContext):
-    if not is_admin(msg.from_user.id):
+    if not await is_admin(msg.from_user.id):
         return
     await state.set_state(AddCoinsState.waiting_user_id)
     await msg.answer(
@@ -331,7 +360,7 @@ async def open_mini_app(msg: Message):
 @router.message(Command("cancel"))
 async def cmd_cancel(msg: Message, state: FSMContext):
     await state.clear()
-    kb = admin_menu_kb() if is_admin(msg.from_user.id) else None
+    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else None
     await msg.answer("❌ Отменено.", reply_markup=kb or ReplyKeyboardRemove())
 
 

@@ -37,6 +37,7 @@ class UserOut(BaseModel):
     photo_url: Optional[str]
     is_registered: bool
     role: str
+    qr_token: Optional[str]
     created_at: datetime
 
     class Config:

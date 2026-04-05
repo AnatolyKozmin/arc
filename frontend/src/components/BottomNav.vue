@@ -18,6 +18,14 @@
             :class="{ 'bottom-nav__avatar--active': isActive('/profile') }"
           />
         </template>
+        <template v-else-if="tab.isScan">
+          <svg class="bottom-nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <path d="M14 14h2v2h-2zM18 14h3M14 18h2M18 18h3v3M21 14v2"/>
+          </svg>
+        </template>
         <template v-else>
           <component :is="tab.icon" class="bottom-nav__icon" />
         </template>
@@ -28,6 +36,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { RouterLink } from 'vue-router'
 import { useUserStore } from '@/stores/user'
@@ -39,12 +48,20 @@ import UserAvatar from '@/components/UserAvatar.vue'
 const route = useRoute()
 const userStore = useUserStore()
 
-const tabs = [
+const baseTabs = [
   { to: '/', label: 'Главная', icon: IconHome },
   { to: '/top', label: 'Топ', icon: IconTop },
   { to: '/shop', label: 'Магазин', icon: IconShop },
   { to: '/profile', label: 'Профиль', icon: null },
 ]
+
+const tabs = computed(() => {
+  const isAdmin = userStore.user?.role === 'admin' || userStore.user?.role === 'organizer'
+  if (isAdmin) {
+    return [...baseTabs, { to: '/scan', label: 'Скан', icon: null, isScan: true }]
+  }
+  return baseTabs
+})
 
 function isActive(path) {
   if (path === '/') return route.path === '/'

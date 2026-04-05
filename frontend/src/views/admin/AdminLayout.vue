@@ -46,6 +46,7 @@ const navItems = [
   { to: '/admin/announcements', icon: '📣', label: 'Объявления' },
   { to: '/admin/products', icon: '🛍️', label: 'Товары' },
   { to: '/admin/achievements', icon: '🏆', label: 'Достижения' },
+  { to: '/admin/admins', icon: '🛡️', label: 'Администраторы' },
 ]
 
 function isActive(to) {
