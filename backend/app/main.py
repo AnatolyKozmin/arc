@@ -11,6 +11,28 @@ from app import models  # noqa: F401 – registers all models for table creation
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
 
+
+def _migrate_tournament_registration_columns():
+    """SQLite: добавить колонки к существующей таблице без Alembic."""
+    from sqlalchemy import text
+
+    if "sqlite" not in str(engine.url).lower():
+        return
+    stmts = (
+        "ALTER TABLE tournament_registrations ADD COLUMN telegram_username TEXT",
+        "ALTER TABLE tournament_registrations ADD COLUMN game_username TEXT",
+    )
+    with engine.connect() as conn:
+        for sql in stmts:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                pass
+
+
+_migrate_tournament_registration_columns()
+
 app = FastAPI(
     title="Аркадиум API",
     version="1.0.0",

@@ -1,5 +1,4 @@
 """Admin web panel router — password-based login, full CRUD."""
-import re
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -432,31 +431,31 @@ def remove_admin(
 _ALLOWED_GAMES = frozenset({"brawl_stars", "clash_royale"})
 
 
-def _normalize_supercell_tag(raw: str) -> str:
-    s = raw.strip().upper().replace(" ", "")
-    if not s.startswith("#"):
-        s = "#" + s.lstrip("#")
-    if len(s) < 4 or len(s) > 18:
-        raise ValueError("Тег должен быть как в игре: # и буквы/цифры (например #ABC12XY)")
-    if not re.match(r"^#[0-9A-Z]{3,}$", s):
-        raise ValueError("Неверный формат тега Supercell")
+def _normalize_game_username(raw: str) -> str:
+    s = raw.strip()
+    if len(s) < 2:
+        raise ValueError("Ник в игре — минимум 2 символа")
+    if len(s) > 64:
+        raise ValueError("Ник в игре слишком длинный")
     return s
 
 
 class TournamentBotRegister(BaseModel):
     telegram_id: int
+    telegram_username: Optional[str] = None  # снимок @username из Telegram
     game: str
-    player_tag: str
+    game_username: str  # ник в игре (из сообщения)
 
 
 class PanelTournamentRow(BaseModel):
     id: int
     telegram_id: int
+    telegram_username: Optional[str]  # снимок при записи
     first_name: str
-    username: Optional[str]
+    username: Optional[str]  # актуальный username из профиля User
     full_name: Optional[str]
     game: str
-    player_tag: str
+    game_username: str
     created_at: datetime
 
     class Config:
@@ -473,9 +472,15 @@ def register_tournament_via_bot(
     if data.game not in _ALLOWED_GAMES:
         raise HTTPException(status_code=400, detail="game: ожидается brawl_stars или clash_royale")
     try:
-        tag = _normalize_supercell_tag(data.player_tag)
+        nick = _normalize_game_username(data.game_username)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    tg_un = (data.telegram_username or "").strip()
+    if tg_un.startswith("@"):
+        tg_un = tg_un[1:]
+    if len(tg_un) > 100:
+        tg_un = tg_un[:100]
 
     user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
     if not user:
@@ -490,24 +495,35 @@ def register_tournament_via_bot(
         .first()
     )
     if existing:
-        existing.player_tag = tag
+        existing.telegram_username = tg_un or None
+        existing.game_username = nick
+        existing.player_tag = nick  # совместимость со старыми отчётами
         db.commit()
         db.refresh(existing)
         reg = existing
     else:
-        reg = models.TournamentRegistration(user_id=user.id, game=data.game, player_tag=tag)
+        reg = models.TournamentRegistration(
+            user_id=user.id,
+            game=data.game,
+            telegram_username=tg_un or None,
+            game_username=nick,
+            player_tag=nick,
+        )
         db.add(reg)
         db.commit()
         db.refresh(reg)
 
+    display_nick = reg.game_username or reg.player_tag or ""
+
     return PanelTournamentRow(
         id=reg.id,
         telegram_id=user.telegram_id,
+        telegram_username=reg.telegram_username,
         first_name=user.first_name,
         username=user.username,
         full_name=user.full_name,
         game=reg.game,
-        player_tag=reg.player_tag,
+        game_username=display_nick,
         created_at=reg.created_at,
     )
 
@@ -532,15 +548,17 @@ def list_tournament_registrations(
         u = db.query(models.User).filter(models.User.id == reg.user_id).first()
         if not u:
             continue
+        nick = reg.game_username or reg.player_tag or ""
         out.append(
             PanelTournamentRow(
                 id=reg.id,
                 telegram_id=u.telegram_id,
+                telegram_username=reg.telegram_username,
                 first_name=u.first_name,
                 username=u.username,
                 full_name=u.full_name,
                 game=reg.game,
-                player_tag=reg.player_tag,
+                game_username=nick,
                 created_at=reg.created_at,
             )
         )

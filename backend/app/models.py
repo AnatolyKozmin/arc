@@ -121,7 +121,7 @@ class UserAchievement(Base):
 
 
 class TournamentRegistration(Base):
-    """Регистрация на турниры Brawl Stars / Clash Royale (тег Supercell #XXXX)."""
+    """Регистрация на турниры Brawl Stars / Clash Royale."""
     __tablename__ = "tournament_registrations"
     __table_args__ = (
         UniqueConstraint("user_id", "game", name="uq_tournament_user_game"),
@@ -130,7 +130,10 @@ class TournamentRegistration(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     game = Column(String(32), nullable=False)  # brawl_stars | clash_royale
-    player_tag = Column(String(32), nullable=False)
+    # Снимок на момент записи (из Telegram) + ник в игре (из сообщения боту)
+    telegram_username = Column(String(100), nullable=True)
+    game_username = Column(String(64), nullable=True)
+    player_tag = Column(String(32), nullable=True)  # legacy, дубль старых записей
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

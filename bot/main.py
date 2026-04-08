@@ -141,9 +141,9 @@ TOURN_GAME_TITLE = {
 BTN_BS = "🟢 Brawl Stars"
 BTN_CR = "👑 Clash Royale"
 BTN_TOURN_MENU = "🏆 Меню турниров"
-BTN_TAG_HELP = "📖 Где взять игровой тег?"
+BTN_TAG_HELP = "📖 Где взять ник в игре?"
 BTN_FLOW_CANCEL = "❌ Отмена"
-BTN_FLOW_HINT = "📖 Подсказка по тегу"
+BTN_FLOW_HINT = "📖 Подсказка по нику"
 
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
@@ -182,7 +182,7 @@ def tournament_hub_inline_kb() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="👑 Запись: Clash Royale", callback_data="tourn:cr"),
             ],
             [
-                InlineKeyboardButton(text="📖 Как найти тег?", callback_data="tourn:help"),
+                InlineKeyboardButton(text="📖 Как найти ник?", callback_data="tourn:help"),
             ],
         ]
     )
@@ -211,11 +211,11 @@ def tournament_confirm_inline_kb() -> InlineKeyboardMarkup:
 
 
 TAG_HELP_TEXT = (
-    "📖 <b>Где взять игровой тег Supercell</b>\n\n"
-    "1) Открой Brawl Stars или Clash Royale.\n"
-    "2) Зайди в профиль своего аккаунта.\n"
-    "3) Скопируй тег — строка вида <code>#ABC12XY</code> (с решёткой).\n\n"
-    "Его нужно отправить боту <b>одним сообщением</b> после выбора турнира."
+    "📖 <b>Ник в игре</b>\n\n"
+    "После выбора турнира пришли <b>одним сообщением</b> свой "
+    "<b>username / ник в игре</b>, как в профиле Brawl Stars или Clash Royale.\n\n"
+    "<b>Telegram ID</b> и <b>@username</b> мы возьмём из Telegram сами; "
+    "в сообщении нужен только игровой ник."
 )
 
 
@@ -458,12 +458,14 @@ async def open_mini_app(msg: Message):
 async def tournament_begin_game(message: Message, state: FSMContext, game: str) -> None:
     await state.clear()
     await state.set_state(TournamentState.waiting_tag)
-    await state.update_data(game=game, pending_tag=None)
+    await state.update_data(game=game, pending_game_username=None)
     title = TOURN_GAME_TITLE[game]
     await message.answer(
         f"🎮 <b>{title}</b>\n\n"
-        "Ниже кнопки <b>«Отмена»</b> и <b>«Подсказка»</b>.\n"
-        "Тег из игры пришли <b>одним сообщением</b> (пример: <code>#ABC12XY</code>).\n\n"
+        "Ниже — <b>«Отмена»</b> и <b>«Подсказка по нику»</b>.\n\n"
+        "Пришли <b>одним сообщением</b> свой <b>ник в игре</b> (username из профиля игры), "
+        "как показано у тебя в Brawl Stars / Clash Royale.\n\n"
+        "<b>Telegram ID</b> и <b>@username</b> подставятся автоматически.\n\n"
         "<i>Один раз открой «Аркадиум» в мини-приложении — иначе запись не сохранится.</i>",
         parse_mode=ParseMode.HTML,
         reply_markup=tournament_flow_reply_kb(),
@@ -485,7 +487,7 @@ async def tournament_open_menu(msg: Message, state: FSMContext):
     await state.clear()
     await msg.answer(
         "🏆 <b>Турниры Supercell</b>\n\n"
-        "Выбери игру кнопкой ниже — дальше всё кнопками, кроме самого тега.",
+        "Выбери игру кнопкой ниже — дальше кнопки + одно сообщение с ником в игре.",
         parse_mode=ParseMode.HTML,
         reply_markup=tournament_hub_inline_kb(),
     )
@@ -541,10 +543,12 @@ async def tournament_flow_hint(msg: Message, state: FSMContext):
 
 
 @router.message(TournamentState.waiting_tag, ~Command())
-async def tournament_got_tag(msg: Message, state: FSMContext):
+async def tournament_got_game_nick(msg: Message, state: FSMContext):
     if not msg.text:
-        return await msg.answer("Пришли тег текстом (например <code>#ABC12XY</code>).", parse_mode=ParseMode.HTML)
+        return await msg.answer("Пришли ник в игре текстом (от 2 символов).", parse_mode=ParseMode.HTML)
     raw = msg.text.strip()
+    if len(raw) < 2:
+        return await msg.answer("Слишком коротко — нужен ник минимум из 2 символов.")
     data = await state.get_data()
     game = data.get("game")
     if not game:
@@ -555,14 +559,22 @@ async def tournament_got_tag(msg: Message, state: FSMContext):
             reply_markup=main_menu_kb(),
         )
 
-    await state.update_data(pending_tag=raw)
+    await state.update_data(pending_game_username=raw)
     await state.set_state(TournamentState.confirming)
     title = TOURN_GAME_TITLE.get(game, game)
     safe = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    tid = msg.from_user.id
+    tun = msg.from_user.username
+    if tun:
+        tun_disp = f"@{tun}" if not tun.startswith("@") else tun
+    else:
+        tun_disp = "<i>нет username в Telegram</i>"
     await msg.answer(
-        f"📋 <b>Проверь</b>\n\n"
+        "📋 <b>Проверь данные</b>\n\n"
+        f"Telegram ID: <code>{tid}</code>\n"
+        f"Telegram: {tun_disp}\n"
         f"Игра: <b>{title}</b>\n"
-        f"Тег: <code>{safe}</code>\n\n"
+        f"Ник в игре: <code>{safe}</code>\n\n"
         "Нажми кнопку под этим сообщением:",
         parse_mode=ParseMode.HTML,
         reply_markup=tournament_confirm_inline_kb(),
@@ -571,12 +583,12 @@ async def tournament_got_tag(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == "tourn:retry", StateFilter(TournamentState.confirming))
 async def tournament_cb_retry(query: CallbackQuery, state: FSMContext):
-    await query.answer("Можно ввести тег снова")
+    await query.answer("Можно ввести ник снова")
     await state.set_state(TournamentState.waiting_tag)
-    await state.update_data(pending_tag=None)
+    await state.update_data(pending_game_username=None)
     if query.message:
         await query.message.answer(
-            "Пришли тег сообщением ещё раз.",
+            "Пришли ник в игре сообщением ещё раз.",
             reply_markup=tournament_flow_reply_kb(),
         )
 
@@ -586,7 +598,7 @@ async def tournament_cb_save(query: CallbackQuery, state: FSMContext):
     await query.answer()
     data = await state.get_data()
     game = data.get("game")
-    raw = data.get("pending_tag")
+    raw = data.get("pending_game_username")
     if not game or not raw:
         await state.clear()
         if query.message:
@@ -597,10 +609,16 @@ async def tournament_cb_save(query: CallbackQuery, state: FSMContext):
         return
 
     tg_id = query.from_user.id
+    tg_username = query.from_user.username
     try:
         await api_post(
             "/panel/tournaments/register",
-            {"telegram_id": tg_id, "game": game, "player_tag": raw},
+            {
+                "telegram_id": tg_id,
+                "telegram_username": tg_username,
+                "game": game,
+                "game_username": raw,
+            },
         )
     except httpx.HTTPStatusError as e:
         err = str(e)
@@ -621,7 +639,7 @@ async def tournament_cb_save(query: CallbackQuery, state: FSMContext):
     kb = admin_menu_kb() if await is_admin(tg_id) else main_menu_kb()
     if query.message:
         await query.message.answer(
-            f"✅ Ты записан на <b>{title}</b>! Тег сохранён. Удачи!",
+            f"✅ Записали на <b>{title}</b>! TG id, @username и ник в игре сохранены.",
             parse_mode=ParseMode.HTML,
             reply_markup=kb,
         )
@@ -648,10 +666,14 @@ async def cmd_tournament_list(msg: Message):
     lines_bs: list[str] = []
     lines_cr: list[str] = []
     for r in rows:
-        name = (r.get("full_name") or r.get("first_name") or "?").strip()
         tg = r.get("telegram_id")
-        tag = r.get("player_tag")
-        line = f"• {name} — <code>{tag}</code> (tg <code>{tg}</code>)"
+        tun = r.get("telegram_username") or ""
+        if tun and not str(tun).startswith("@"):
+            tun = "@" + str(tun)
+        elif not tun:
+            tun = "—"
+        nick = r.get("game_username") or ""
+        line = f"• id <code>{tg}</code> {tun} — игра <code>{nick}</code>"
         if r.get("game") == "brawl_stars":
             lines_bs.append(line)
         else:
