@@ -1,4 +1,5 @@
 """Admin web panel router — password-based login, full CRUD."""
+import re
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -424,3 +425,123 @@ def remove_admin(
     db.delete(admin)
     db.commit()
     return {"ok": True}
+
+
+# ── Tournament registrations (Brawl Stars / Clash Royale) ───────────────────────
+
+_ALLOWED_GAMES = frozenset({"brawl_stars", "clash_royale"})
+
+
+def _normalize_supercell_tag(raw: str) -> str:
+    s = raw.strip().upper().replace(" ", "")
+    if not s.startswith("#"):
+        s = "#" + s.lstrip("#")
+    if len(s) < 4 or len(s) > 18:
+        raise ValueError("Тег должен быть как в игре: # и буквы/цифры (например #ABC12XY)")
+    if not re.match(r"^#[0-9A-Z]{3,}$", s):
+        raise ValueError("Неверный формат тега Supercell")
+    return s
+
+
+class TournamentBotRegister(BaseModel):
+    telegram_id: int
+    game: str
+    player_tag: str
+
+
+class PanelTournamentRow(BaseModel):
+    id: int
+    telegram_id: int
+    first_name: str
+    username: Optional[str]
+    full_name: Optional[str]
+    game: str
+    player_tag: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@router.post("/tournaments/register", response_model=PanelTournamentRow)
+def register_tournament_via_bot(
+    data: TournamentBotRegister,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    """Регистрация от имени пользователя по telegram_id (вызывается ботом)."""
+    if data.game not in _ALLOWED_GAMES:
+        raise HTTPException(status_code=400, detail="game: ожидается brawl_stars или clash_royale")
+    try:
+        tag = _normalize_supercell_tag(data.player_tag)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь ещё не заходил в мини-апп — откройте Аркадиум один раз")
+
+    existing = (
+        db.query(models.TournamentRegistration)
+        .filter(
+            models.TournamentRegistration.user_id == user.id,
+            models.TournamentRegistration.game == data.game,
+        )
+        .first()
+    )
+    if existing:
+        existing.player_tag = tag
+        db.commit()
+        db.refresh(existing)
+        reg = existing
+    else:
+        reg = models.TournamentRegistration(user_id=user.id, game=data.game, player_tag=tag)
+        db.add(reg)
+        db.commit()
+        db.refresh(reg)
+
+    return PanelTournamentRow(
+        id=reg.id,
+        telegram_id=user.telegram_id,
+        first_name=user.first_name,
+        username=user.username,
+        full_name=user.full_name,
+        game=reg.game,
+        player_tag=reg.player_tag,
+        created_at=reg.created_at,
+    )
+
+
+@router.get("/tournaments", response_model=List[PanelTournamentRow])
+def list_tournament_registrations(
+    game: Optional[str] = None,
+    limit: int = 500,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    q = db.query(models.TournamentRegistration)
+    if game:
+        if game not in _ALLOWED_GAMES:
+            raise HTTPException(status_code=400, detail="Неверная игра")
+        q = q.filter(models.TournamentRegistration.game == game)
+    rows = (
+        q.order_by(models.TournamentRegistration.created_at.desc()).limit(max(1, min(limit, 2000))).all()
+    )
+    out: List[PanelTournamentRow] = []
+    for reg in rows:
+        u = db.query(models.User).filter(models.User.id == reg.user_id).first()
+        if not u:
+            continue
+        out.append(
+            PanelTournamentRow(
+                id=reg.id,
+                telegram_id=u.telegram_id,
+                first_name=u.first_name,
+                username=u.username,
+                full_name=u.full_name,
+                game=reg.game,
+                player_tag=reg.player_tag,
+                created_at=reg.created_at,
+            )
+        )
+    return out

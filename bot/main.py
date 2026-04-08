@@ -101,6 +101,19 @@ async def api_patch(path: str, payload: dict) -> dict:
         return r.json()
 
 
+async def api_post(path: str, payload: dict) -> dict:
+    token = await get_panel_token()
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            f"{API_BASE}{path}",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        return r.json()
+
+
 async def is_admin(user_id: int) -> bool:
     if user_id in ADMIN_IDS:
         return True
@@ -117,14 +130,44 @@ def mini_app_kb() -> InlineKeyboardMarkup:
     ]])
 
 
+def main_menu_kb() -> ReplyKeyboardMarkup:
+    """Обычные пользователи: мини-апп + турниры."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🎮 Аркадиум", web_app=WebAppInfo(url=MINI_APP_URL))],
+            [KeyboardButton(text="🏆 Турнир BS / CR")],
+        ],
+        resize_keyboard=True,
+    )
+
+
 def admin_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="👥 Пользователи")],
-            [KeyboardButton(text="📢 Рассылка"),   KeyboardButton(text="💰 Начислить монеты")],
+            [KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="💰 Начислить монеты")],
+            [KeyboardButton(text="🏆 Турниры: список")],
             [KeyboardButton(text="🎮 Открыть мини-апп")],
         ],
         resize_keyboard=True,
+    )
+
+
+TOURN_GAME_FROM_CB = {"bs": "brawl_stars", "cr": "clash_royale"}
+TOURN_GAME_TITLE = {
+    "brawl_stars": "Brawl Stars",
+    "clash_royale": "Clash Royale",
+}
+
+
+def tournament_game_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🟢 Brawl Stars", callback_data="tourn:bs"),
+                InlineKeyboardButton(text="👑 Clash Royale", callback_data="tourn:cr"),
+            ],
+        ]
     )
 
 
@@ -141,6 +184,10 @@ class AddCoinsState(StatesGroup):
     waiting_confirm = State()
 
 
+class TournamentState(StatesGroup):
+    waiting_tag = State()
+
+
 # ── /start ───────────────────────────────────────────────────────────────────
 
 @router.message(CommandStart())
@@ -154,7 +201,7 @@ async def cmd_start(msg: Message):
     if await is_admin(msg.from_user.id):
         await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
     else:
-        await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=mini_app_kb())
+        await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=main_menu_kb())
 
 
 # ── Admin: /admin ─────────────────────────────────────────────────────────────
@@ -256,7 +303,7 @@ async def broadcast_confirm(msg: Message, state: FSMContext, bot: Bot):
 
     sent = 0
     failed = 0
-    kb = mini_app_kb()
+    kb = main_menu_kb()
 
     for u in users:
         tg_id = u.get("telegram_id")
@@ -355,13 +402,119 @@ async def open_mini_app(msg: Message):
     await msg.answer("Открывай:", reply_markup=mini_app_kb())
 
 
+# ── Tournament registration (Brawl Stars / Clash Royale) ─────────────────────
+
+@router.message(Command("tournament"))
+@router.message(F.text == "🏆 Турнир BS / CR")
+async def cmd_tournament(msg: Message, state: FSMContext):
+    await state.clear()
+    await msg.answer(
+        "🏆 <b>Турниры Supercell</b>\n\n"
+        "1) Нажми игру ниже.\n"
+        "2) Отправь свой <b>игровой тег</b> из профиля (формат <code>#XXXXXXXX</code>).\n\n"
+        "<i>Один раз открой мини-апп «Аркадиум», чтобы мы создали твой профиль — иначе запись не сохранится.</i>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=tournament_game_kb(),
+    )
+
+
+@router.callback_query(F.data.startswith("tourn:"))
+async def tournament_pick_game(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    key = (query.data or "").split(":")[-1]
+    game = TOURN_GAME_FROM_CB.get(key)
+    if not game:
+        return
+    await state.set_state(TournamentState.waiting_tag)
+    await state.update_data(game=game)
+    title = TOURN_GAME_TITLE[game]
+    await query.message.answer(
+        f"Игра: <b>{title}</b>\n\n"
+        f"Отправь тег одним сообщением (пример: <code>#ABC12XY</code>).\n"
+        f"/cancel — отмена.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(TournamentState.waiting_tag, ~Command())
+async def tournament_got_tag(msg: Message, state: FSMContext):
+    if not msg.text:
+        return await msg.answer("Пришли тег текстом, например #ABCD12")
+    raw = msg.text.strip()
+    data = await state.get_data()
+    game = data.get("game")
+    if not game:
+        await state.clear()
+        return await msg.answer("Начни снова: /tournament")
+    tg_id = msg.from_user.id
+    try:
+        await api_post(
+            "/panel/tournaments/register",
+            {"telegram_id": tg_id, "game": game, "player_tag": raw},
+        )
+    except httpx.HTTPStatusError as e:
+        err = str(e)
+        try:
+            err = e.response.json().get("detail", err)
+        except Exception:
+            pass
+        return await msg.answer(f"❌ {err}")
+    except Exception as e:
+        return await msg.answer(f"❌ Ошибка: {e}")
+
+    await state.clear()
+    title = TOURN_GAME_TITLE.get(game, game)
+    kb = admin_menu_kb() if await is_admin(tg_id) else main_menu_kb()
+    await msg.answer(
+        f"✅ Записали на <b>{title}</b>! Тег сохранён. Удачи!",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb,
+    )
+
+
+@router.message(F.text == "🏆 Турниры: список")
+async def cmd_tournament_list(msg: Message):
+    if not await is_admin(msg.from_user.id):
+        return
+    try:
+        rows = await api_get("/panel/tournaments?limit=120")
+    except Exception as e:
+        return await msg.answer(f"❌ {e}")
+    if not rows:
+        return await msg.answer("Пока никто не зарегистрировался на турниры.")
+    lines_bs: list[str] = []
+    lines_cr: list[str] = []
+    for r in rows:
+        name = (r.get("full_name") or r.get("first_name") or "?").strip()
+        tg = r.get("telegram_id")
+        tag = r.get("player_tag")
+        line = f"• {name} — <code>{tag}</code> (tg <code>{tg}</code>)"
+        if r.get("game") == "brawl_stars":
+            lines_bs.append(line)
+        else:
+            lines_cr.append(line)
+    chunks: list[str] = []
+    head = "🏆 <b>Регистрации</b>\n\n"
+    if lines_bs:
+        chunks.append("🟢 <b>Brawl Stars</b>\n" + "\n".join(lines_bs))
+    if lines_cr:
+        chunks.append("👑 <b>Clash Royale</b>\n" + "\n".join(lines_cr))
+    text = head + "\n\n".join(chunks)
+    if len(text) > 4000:
+        text = text[:3990] + "…"
+    await msg.answer(text, parse_mode=ParseMode.HTML)
+
+
 # ── /cancel ───────────────────────────────────────────────────────────────────
 
 @router.message(Command("cancel"))
 async def cmd_cancel(msg: Message, state: FSMContext):
     await state.clear()
-    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else None
-    await msg.answer("❌ Отменено.", reply_markup=kb or ReplyKeyboardRemove())
+    if await is_admin(msg.from_user.id):
+        kb = admin_menu_kb()
+    else:
+        kb = main_menu_kb()
+    await msg.answer("❌ Отменено.", reply_markup=kb)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

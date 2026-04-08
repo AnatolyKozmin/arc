@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -118,6 +118,23 @@ class UserAchievement(Base):
 
     user = relationship("User", back_populates="user_achievements")
     achievement = relationship("Achievement", back_populates="user_achievements")
+
+
+class TournamentRegistration(Base):
+    """Регистрация на турниры Brawl Stars / Clash Royale (тег Supercell #XXXX)."""
+    __tablename__ = "tournament_registrations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "game", name="uq_tournament_user_game"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    game = Column(String(32), nullable=False)  # brawl_stars | clash_royale
+    player_tag = Column(String(32), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", backref="tournament_registrations")
 
 
 class Announcement(Base):
