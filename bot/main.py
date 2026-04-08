@@ -10,7 +10,7 @@ import os
 import httpx
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.filters import BaseFilter, Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -63,6 +63,16 @@ async def get_db_admins() -> set[int]:
         return _db_admin_cache
 
 router = Router()
+
+
+class TextIsNotCommand(BaseFilter):
+    """Сообщение не начинается с /command — чтобы /cancel и др. шли в свои хендлеры."""
+
+    async def __call__(self, message: Message) -> bool:
+        if message.text is None:
+            return True
+        return not message.text.startswith("/")
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -542,7 +552,7 @@ async def tournament_flow_hint(msg: Message, state: FSMContext):
     await msg.answer(TAG_HELP_TEXT, parse_mode=ParseMode.HTML)
 
 
-@router.message(TournamentState.waiting_tag, ~Command())
+@router.message(TournamentState.waiting_tag, TextIsNotCommand())
 async def tournament_got_game_nick(msg: Message, state: FSMContext):
     if not msg.text:
         return await msg.answer("Пришли ник в игре текстом (от 2 символов).", parse_mode=ParseMode.HTML)
@@ -645,7 +655,7 @@ async def tournament_cb_save(query: CallbackQuery, state: FSMContext):
         )
 
 
-@router.message(TournamentState.confirming, ~Command())
+@router.message(TournamentState.confirming, TextIsNotCommand())
 async def tournament_confirming_extra_text(msg: Message):
     await msg.answer(
         "Сначала нажми кнопки <b>«Да, записать»</b> или <b>«Ввести заново»</b> под предыдущим сообщением.",
