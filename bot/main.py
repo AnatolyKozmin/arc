@@ -1,6 +1,7 @@
 """
 Arkadium 2026 — Telegram Bot
-Admin commands: /broadcast, /stats, /addcoins, /users
+Турниры и меню — в основном кнопки (reply + inline).
+Служебные команды для админов: /stats, /users, /broadcast, /addcoins, /cancel
 """
 
 import asyncio
@@ -9,7 +10,7 @@ import os
 import httpx
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -130,12 +131,29 @@ def mini_app_kb() -> InlineKeyboardMarkup:
     ]])
 
 
+TOURN_GAME_FROM_CB = {"bs": "brawl_stars", "cr": "clash_royale"}
+TOURN_GAME_TITLE = {
+    "brawl_stars": "Brawl Stars",
+    "clash_royale": "Clash Royale",
+}
+
+# Тексты кнопок — выбор игры (reply)
+BTN_BS = "🟢 Brawl Stars"
+BTN_CR = "👑 Clash Royale"
+BTN_TOURN_MENU = "🏆 Меню турниров"
+BTN_TAG_HELP = "📖 Где взять игровой тег?"
+BTN_FLOW_CANCEL = "❌ Отмена"
+BTN_FLOW_HINT = "📖 Подсказка по тегу"
+
+
 def main_menu_kb() -> ReplyKeyboardMarkup:
-    """Обычные пользователи: мини-апп + турниры."""
+    """Обычные пользователи — по максимуму кнопок, без команд."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🎮 Аркадиум", web_app=WebAppInfo(url=MINI_APP_URL))],
-            [KeyboardButton(text="🏆 Турнир BS / CR")],
+            [KeyboardButton(text=BTN_BS), KeyboardButton(text=BTN_CR)],
+            [KeyboardButton(text=BTN_TOURN_MENU)],
+            [KeyboardButton(text=BTN_TAG_HELP)],
         ],
         resize_keyboard=True,
     )
@@ -146,29 +164,59 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="👥 Пользователи")],
             [KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="💰 Начислить монеты")],
-            [KeyboardButton(text="🏆 Турниры: список")],
+            [KeyboardButton(text=BTN_BS), KeyboardButton(text=BTN_CR)],
+            [KeyboardButton(text=BTN_TOURN_MENU), KeyboardButton(text="🏆 Турниры: список")],
+            [KeyboardButton(text=BTN_TAG_HELP)],
             [KeyboardButton(text="🎮 Открыть мини-апп")],
         ],
         resize_keyboard=True,
     )
 
 
-TOURN_GAME_FROM_CB = {"bs": "brawl_stars", "cr": "clash_royale"}
-TOURN_GAME_TITLE = {
-    "brawl_stars": "Brawl Stars",
-    "clash_royale": "Clash Royale",
-}
-
-
-def tournament_game_kb() -> InlineKeyboardMarkup:
+def tournament_hub_inline_kb() -> InlineKeyboardMarkup:
+    """Дополнительные действия из «Меню турниров»."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🟢 Brawl Stars", callback_data="tourn:bs"),
-                InlineKeyboardButton(text="👑 Clash Royale", callback_data="tourn:cr"),
+                InlineKeyboardButton(text="🟢 Запись: Brawl Stars", callback_data="tourn:bs"),
+                InlineKeyboardButton(text="👑 Запись: Clash Royale", callback_data="tourn:cr"),
+            ],
+            [
+                InlineKeyboardButton(text="📖 Как найти тег?", callback_data="tourn:help"),
             ],
         ]
     )
+
+
+def tournament_flow_reply_kb() -> ReplyKeyboardMarkup:
+    """Во время ввода тега."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_FLOW_CANCEL)],
+            [KeyboardButton(text=BTN_FLOW_HINT)],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def tournament_confirm_inline_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, записать", callback_data="tourn:save"),
+                InlineKeyboardButton(text="✏️ Ввести заново", callback_data="tourn:retry"),
+            ],
+        ]
+    )
+
+
+TAG_HELP_TEXT = (
+    "📖 <b>Где взять игровой тег Supercell</b>\n\n"
+    "1) Открой Brawl Stars или Clash Royale.\n"
+    "2) Зайди в профиль своего аккаунта.\n"
+    "3) Скопируй тег — строка вида <code>#ABC12XY</code> (с решёткой).\n\n"
+    "Его нужно отправить боту <b>одним сообщением</b> после выбора турнира."
+)
 
 
 # ── FSM States ───────────────────────────────────────────────────────────────
@@ -186,6 +234,7 @@ class AddCoinsState(StatesGroup):
 
 class TournamentState(StatesGroup):
     waiting_tag = State()
+    confirming = State()
 
 
 # ── /start ───────────────────────────────────────────────────────────────────
@@ -196,7 +245,8 @@ async def cmd_start(msg: Message):
     welcome = (
         f"Привет, {name}! 👋\n\n"
         "Добро пожаловать в <b>Аркадиум 2026</b> — квест на мероприятии.\n\n"
-        "Выбирай персонажа, выполняй задания, зарабатывай аркоины и попадай в топ!"
+        "Выбирай персонажа, выполняй задания, зарабатывай аркоины и попадай в топ!\n\n"
+        "🏆 Турниры Brawl Stars / Clash Royale — кнопками ниже, без команд."
     )
     if await is_admin(msg.from_user.id):
         await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
@@ -402,51 +452,151 @@ async def open_mini_app(msg: Message):
     await msg.answer("Открывай:", reply_markup=mini_app_kb())
 
 
-# ── Tournament registration (Brawl Stars / Clash Royale) ─────────────────────
+# ── Tournament registration (Brawl Stars / Clash Royale) — кнопки, без команд ─
 
-@router.message(Command("tournament"))
-@router.message(F.text == "🏆 Турнир BS / CR")
-async def cmd_tournament(msg: Message, state: FSMContext):
+
+async def tournament_begin_game(message: Message, state: FSMContext, game: str) -> None:
+    await state.clear()
+    await state.set_state(TournamentState.waiting_tag)
+    await state.update_data(game=game, pending_tag=None)
+    title = TOURN_GAME_TITLE[game]
+    await message.answer(
+        f"🎮 <b>{title}</b>\n\n"
+        "Ниже кнопки <b>«Отмена»</b> и <b>«Подсказка»</b>.\n"
+        "Тег из игры пришли <b>одним сообщением</b> (пример: <code>#ABC12XY</code>).\n\n"
+        "<i>Один раз открой «Аркадиум» в мини-приложении — иначе запись не сохранится.</i>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=tournament_flow_reply_kb(),
+    )
+
+
+@router.message(F.text == BTN_BS)
+async def tournament_reply_bs(msg: Message, state: FSMContext):
+    await tournament_begin_game(msg, state, "brawl_stars")
+
+
+@router.message(F.text == BTN_CR)
+async def tournament_reply_cr(msg: Message, state: FSMContext):
+    await tournament_begin_game(msg, state, "clash_royale")
+
+
+@router.message(F.text == BTN_TOURN_MENU)
+async def tournament_open_menu(msg: Message, state: FSMContext):
     await state.clear()
     await msg.answer(
         "🏆 <b>Турниры Supercell</b>\n\n"
-        "1) Нажми игру ниже.\n"
-        "2) Отправь свой <b>игровой тег</b> из профиля (формат <code>#XXXXXXXX</code>).\n\n"
-        "<i>Один раз открой мини-апп «Аркадиум», чтобы мы создали твой профиль — иначе запись не сохранится.</i>",
+        "Выбери игру кнопкой ниже — дальше всё кнопками, кроме самого тега.",
         parse_mode=ParseMode.HTML,
-        reply_markup=tournament_game_kb(),
+        reply_markup=tournament_hub_inline_kb(),
     )
 
 
-@router.callback_query(F.data.startswith("tourn:"))
-async def tournament_pick_game(query: CallbackQuery, state: FSMContext):
+@router.message(F.text == BTN_TAG_HELP)
+async def tournament_help_static(msg: Message, state: FSMContext):
+    st = await state.get_state()
+    if st in ("TournamentState:waiting_tag", "TournamentState:confirming"):
+        return
+    await msg.answer(
+        TAG_HELP_TEXT,
+        parse_mode=ParseMode.HTML,
+        reply_markup=tournament_hub_inline_kb(),
+    )
+
+
+@router.callback_query(F.data.in_({"tourn:bs", "tourn:cr"}))
+async def tournament_cb_pick_game(query: CallbackQuery, state: FSMContext):
     await query.answer()
     key = (query.data or "").split(":")[-1]
     game = TOURN_GAME_FROM_CB.get(key)
-    if not game:
+    if not game or not query.message:
         return
-    await state.set_state(TournamentState.waiting_tag)
-    await state.update_data(game=game)
-    title = TOURN_GAME_TITLE[game]
-    await query.message.answer(
-        f"Игра: <b>{title}</b>\n\n"
-        f"Отправь тег одним сообщением (пример: <code>#ABC12XY</code>).\n"
-        f"/cancel — отмена.",
-        parse_mode=ParseMode.HTML,
-    )
+    await tournament_begin_game(query.message, state, game)
+
+
+@router.callback_query(F.data == "tourn:help")
+async def tournament_cb_help(query: CallbackQuery):
+    await query.answer()
+    if query.message:
+        await query.message.answer(TAG_HELP_TEXT, parse_mode=ParseMode.HTML)
+
+
+@router.message(
+    TournamentState.waiting_tag,
+    F.text == BTN_FLOW_CANCEL,
+)
+@router.message(
+    TournamentState.confirming,
+    F.text == BTN_FLOW_CANCEL,
+)
+async def tournament_flow_cancel(msg: Message, state: FSMContext):
+    await state.clear()
+    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else main_menu_kb()
+    await msg.answer("❌ Запись отменена.", reply_markup=kb)
+
+
+@router.message(TournamentState.waiting_tag, F.text == BTN_FLOW_HINT)
+@router.message(TournamentState.confirming, F.text == BTN_FLOW_HINT)
+async def tournament_flow_hint(msg: Message, state: FSMContext):
+    await msg.answer(TAG_HELP_TEXT, parse_mode=ParseMode.HTML)
 
 
 @router.message(TournamentState.waiting_tag, ~Command())
 async def tournament_got_tag(msg: Message, state: FSMContext):
     if not msg.text:
-        return await msg.answer("Пришли тег текстом, например #ABCD12")
+        return await msg.answer("Пришли тег текстом (например <code>#ABC12XY</code>).", parse_mode=ParseMode.HTML)
     raw = msg.text.strip()
     data = await state.get_data()
     game = data.get("game")
     if not game:
         await state.clear()
-        return await msg.answer("Начни снова: /tournament")
-    tg_id = msg.from_user.id
+        return await msg.answer(
+            "Сессия сброшена. Нажми <b>🟢 Brawl Stars</b> или <b>👑 Clash Royale</b>.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=main_menu_kb(),
+        )
+
+    await state.update_data(pending_tag=raw)
+    await state.set_state(TournamentState.confirming)
+    title = TOURN_GAME_TITLE.get(game, game)
+    safe = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    await msg.answer(
+        f"📋 <b>Проверь</b>\n\n"
+        f"Игра: <b>{title}</b>\n"
+        f"Тег: <code>{safe}</code>\n\n"
+        "Нажми кнопку под этим сообщением:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=tournament_confirm_inline_kb(),
+    )
+
+
+@router.callback_query(F.data == "tourn:retry", StateFilter(TournamentState.confirming))
+async def tournament_cb_retry(query: CallbackQuery, state: FSMContext):
+    await query.answer("Можно ввести тег снова")
+    await state.set_state(TournamentState.waiting_tag)
+    await state.update_data(pending_tag=None)
+    if query.message:
+        await query.message.answer(
+            "Пришли тег сообщением ещё раз.",
+            reply_markup=tournament_flow_reply_kb(),
+        )
+
+
+@router.callback_query(F.data == "tourn:save", StateFilter(TournamentState.confirming))
+async def tournament_cb_save(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    data = await state.get_data()
+    game = data.get("game")
+    raw = data.get("pending_tag")
+    if not game or not raw:
+        await state.clear()
+        if query.message:
+            await query.message.answer(
+                "Сессия устарела. Выбери игру кнопкой на клавиатуре.",
+                reply_markup=main_menu_kb(),
+            )
+        return
+
+    tg_id = query.from_user.id
     try:
         await api_post(
             "/panel/tournaments/register",
@@ -458,17 +608,30 @@ async def tournament_got_tag(msg: Message, state: FSMContext):
             err = e.response.json().get("detail", err)
         except Exception:
             pass
-        return await msg.answer(f"❌ {err}")
+        if query.message:
+            await query.message.answer(f"❌ {err}")
+        return
     except Exception as e:
-        return await msg.answer(f"❌ Ошибка: {e}")
+        if query.message:
+            await query.message.answer(f"❌ Ошибка: {e}")
+        return
 
     await state.clear()
     title = TOURN_GAME_TITLE.get(game, game)
     kb = admin_menu_kb() if await is_admin(tg_id) else main_menu_kb()
+    if query.message:
+        await query.message.answer(
+            f"✅ Ты записан на <b>{title}</b>! Тег сохранён. Удачи!",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb,
+        )
+
+
+@router.message(TournamentState.confirming, ~Command())
+async def tournament_confirming_extra_text(msg: Message):
     await msg.answer(
-        f"✅ Записали на <b>{title}</b>! Тег сохранён. Удачи!",
+        "Сначала нажми кнопки <b>«Да, записать»</b> или <b>«Ввести заново»</b> под предыдущим сообщением.",
         parse_mode=ParseMode.HTML,
-        reply_markup=kb,
     )
 
 
