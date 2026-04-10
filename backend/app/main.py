@@ -1,7 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import os
 
 from app.config import settings
 from app.database import Base, engine
@@ -58,6 +59,13 @@ app.include_router(transactions.router, prefix="/api")
 app.include_router(achievements.router, prefix="/api")
 app.include_router(announcements.router, prefix="/api")
 app.include_router(panel.router, prefix="/api")
+
+# Статика: загрузки из админки (/api/panel/upload)
+_upload_root = Path(settings.upload_dir)
+if not _upload_root.is_absolute():
+    _upload_root = Path(__file__).resolve().parent.parent / _upload_root
+_upload_root.mkdir(parents=True, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=str(_upload_root)), name="uploads")
 
 
 @app.get("/api/health")

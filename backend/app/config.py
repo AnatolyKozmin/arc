@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Web admin panel credentials
     panel_username: str = "admin"
     panel_password: str = "arkadium2026"
+    # Загрузка картинок в админке (абсолютный путь в Docker: /app/uploads)
+    upload_dir: str = "uploads"
+    max_upload_mb: int = 12
 
     @classmethod
     def settings_customise_sources(

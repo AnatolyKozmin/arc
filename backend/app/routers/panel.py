@@ -1,8 +1,10 @@
 """Admin web panel router — password-based login, full CRUD."""
+import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -122,6 +124,81 @@ def list_users(
             | models.User.full_name.ilike(like)
         )
     return q.order_by(models.User.balance.desc()).offset(skip).limit(limit).all()
+
+
+class EnsureUserFromBot(BaseModel):
+    """Создать или обновить пользователя по данным из Telegram (бот /start)."""
+    telegram_id: int
+    username: Optional[str] = None
+    first_name: str = ""
+    last_name: Optional[str] = None
+
+
+@router.post("/users/ensure", response_model=PanelUserOut)
+def ensure_user_from_bot(
+    data: EnsureUserFromBot,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    """Upsert пользователя по telegram_id — вызывается ботом при /start."""
+    user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
+    if not user:
+        user = models.User(
+            telegram_id=data.telegram_id,
+            username=data.username,
+            first_name=data.first_name or "Участник",
+            last_name=data.last_name,
+            qr_token=str(uuid.uuid4()),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        user.username = data.username
+        if data.first_name:
+            user.first_name = data.first_name
+        user.last_name = data.last_name
+        if not user.qr_token:
+            user.qr_token = str(uuid.uuid4())
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+_ALLOWED_UPLOAD_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+
+def _upload_dir() -> Path:
+    p = Path(settings.upload_dir)
+    if not p.is_absolute():
+        p = Path(__file__).resolve().parent.parent.parent / p
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+@router.post("/upload")
+async def upload_media(
+    file: UploadFile = File(...),
+    _: None = Depends(require_panel),
+):
+    """Загрузка изображения для объявлений/товаров; возвращает URL для поля image_url."""
+    orig = (file.filename or "").lower()
+    ext = Path(orig).suffix
+    if ext not in _ALLOWED_UPLOAD_EXT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Допустимы файлы: {', '.join(sorted(_ALLOWED_UPLOAD_EXT))}",
+        )
+    max_b = settings.max_upload_mb * 1024 * 1024
+    body = await file.read()
+    if len(body) > max_b:
+        raise HTTPException(status_code=413, detail=f"Файл больше {settings.max_upload_mb} МБ")
+
+    name = f"{uuid.uuid4().hex}{ext}"
+    dest = _upload_dir() / name
+    dest.write_bytes(body)
+    # Тот же origin, что и API (nginx проксирует /api/)
+    return {"url": f"/api/uploads/{name}"}
 
 
 @router.patch("/users/{user_id}/balance", response_model=PanelUserOut)

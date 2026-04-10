@@ -49,8 +49,19 @@
           <textarea v-model="form.description" class="field__input field__textarea" placeholder="Описание товара…" />
         </div>
         <div class="field">
-          <label class="field__label">URL изображения</label>
-          <input v-model="form.image_url" type="text" class="field__input" placeholder="https://…" />
+          <label class="field__label">Изображение</label>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            class="field__input field__file"
+            :disabled="uploading"
+            @change="onImageFile"
+          />
+          <p class="field__hint">Загрузка файла или укажите ссылку ниже</p>
+          <input v-model="form.image_url" type="text" class="field__input" placeholder="https://… или /api/uploads/…" />
+          <div v-if="form.image_url" class="img-preview-wrap">
+            <img :src="form.image_url" alt="" class="img-preview" />
+          </div>
         </div>
         <div class="field-row">
           <div class="field field--sm">
@@ -77,7 +88,7 @@
 
         <div class="modal__actions">
           <button class="btn-ghost" @click="modal = null">Отмена</button>
-          <button class="btn-primary" :disabled="saving" @click="submitForm">
+          <button class="btn-primary" :disabled="saving || uploading" @click="submitForm">
             {{ saving ? '…' : (editing ? 'Сохранить' : 'Создать') }}
           </button>
         </div>
@@ -96,6 +107,7 @@ const loading = ref(true)
 const modal = ref(false)
 const editing = ref(null)
 const saving = ref(false)
+const uploading = ref(false)
 const formError = ref('')
 const form = ref(defaultForm())
 
@@ -137,6 +149,21 @@ async function submitForm() {
     formError.value = e.response?.data?.detail || 'Ошибка'
   } finally {
     saving.value = false
+  }
+}
+
+async function onImageFile(e) {
+  const f = e.target?.files?.[0]
+  if (!f) return
+  uploading.value = true
+  formError.value = ''
+  try {
+    form.value.image_url = await store.uploadImage(f)
+  } catch (err) {
+    formError.value = err.response?.data?.detail || 'Ошибка загрузки файла'
+  } finally {
+    uploading.value = false
+    e.target.value = ''
   }
 }
 
@@ -193,6 +220,10 @@ onMounted(load)
 .field__input { border: 1.5px solid #e0e0e0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; width: 100%; box-sizing: border-box; }
 .field__input:focus { border-color: #8127E0; }
 .field__textarea { min-height: 80px; resize: vertical; font-family: inherit; }
+.field__hint { font-size: 12px; color: #888; margin: -4px 0 4px; }
+.field__file { padding: 8px 0; font-size: 13px; }
+.img-preview-wrap { margin-top: 8px; }
+.img-preview { max-height: 120px; max-width: 100%; border-radius: 10px; object-fit: contain; background: #f5f5f7; }
 .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; cursor: pointer; padding-bottom: 10px; }
 .error-msg { font-size: 13px; color: #ff3b30; }
 </style>

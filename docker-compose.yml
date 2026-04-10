@@ -30,8 +30,10 @@ services:
       - DEV_MODE=${DEV_MODE:-false}
       - PANEL_USERNAME=${PANEL_USERNAME:-admin}
       - PANEL_PASSWORD=${PANEL_PASSWORD:-arkadium2026}
+      - UPLOAD_DIR=/app/uploads
     volumes:
       - db-data:/data
+      - uploads-data:/app/uploads
     networks:
       - arkadium_net
     restart: unless-stopped
@@ -65,3 +67,4 @@ networks:
 
 volumes:
   db-data:
+  uploads-data:

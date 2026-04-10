@@ -27,6 +27,9 @@
             <button class="btn-sm btn-sm--danger" @click="confirmDelete(item)">🗑️</button>
           </div>
         </div>
+        <div v-if="item.image_url" class="ann-card__thumb">
+          <img :src="item.image_url" alt="" />
+        </div>
         <p v-if="item.description" class="ann-card__desc">{{ item.description }}</p>
         <p v-if="item.image_url" class="ann-card__img-url">🖼 {{ item.image_url }}</p>
       </div>
@@ -47,8 +50,19 @@
           <textarea v-model="form.description" class="field__input field__textarea" placeholder="Текст объявления…" />
         </div>
         <div class="field">
-          <label class="field__label">URL картинки</label>
-          <input v-model="form.image_url" type="text" class="field__input" placeholder="https://…" />
+          <label class="field__label">Картинка</label>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            class="field__input field__file"
+            :disabled="uploading"
+            @change="onImageFile"
+          />
+          <p class="field__hint">Файл или ссылка</p>
+          <input v-model="form.image_url" type="text" class="field__input" placeholder="https://… или /api/uploads/…" />
+          <div v-if="form.image_url" class="img-preview-wrap">
+            <img :src="form.image_url" alt="" class="img-preview" />
+          </div>
         </div>
         <div class="field-row">
           <div class="field">
@@ -69,7 +83,7 @@
 
         <div class="modal__actions">
           <button class="btn-ghost" @click="modal = null">Отмена</button>
-          <button class="btn-primary" :disabled="saving" @click="submitForm">
+          <button class="btn-primary" :disabled="saving || uploading" @click="submitForm">
             {{ saving ? '…' : (editing ? 'Сохранить' : 'Создать') }}
           </button>
         </div>
@@ -88,6 +102,7 @@ const loading = ref(true)
 const modal = ref(false)
 const editing = ref(null)
 const saving = ref(false)
+const uploading = ref(false)
 const formError = ref('')
 const form = ref(defaultForm())
 
@@ -113,6 +128,21 @@ function openEdit(item) {
   form.value = { title: item.title, description: item.description || '', image_url: item.image_url || '', sort_order: item.sort_order, is_draft: item.is_draft, is_active: item.is_active }
   formError.value = ''
   modal.value = true
+}
+
+async function onImageFile(e) {
+  const f = e.target?.files?.[0]
+  if (!f) return
+  uploading.value = true
+  formError.value = ''
+  try {
+    form.value.image_url = await store.uploadImage(f)
+  } catch (err) {
+    formError.value = err.response?.data?.detail || 'Ошибка загрузки файла'
+  } finally {
+    uploading.value = false
+    e.target.value = ''
+  }
 }
 
 async function submitForm() {
@@ -161,6 +191,8 @@ onMounted(load)
 .ann-card__title { font-size: 16px; font-weight: 600; color: #000; }
 .ann-card__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .ann-card__actions { display: flex; gap: 8px; flex-shrink: 0; }
+.ann-card__thumb { margin-top: 10px; border-radius: 10px; overflow: hidden; max-height: 140px; background: #f5f5f7; }
+.ann-card__thumb img { width: 100%; max-height: 140px; object-fit: cover; display: block; }
 .ann-card__desc { font-size: 13px; color: #666; margin-top: 10px; line-height: 1.5; }
 .ann-card__img-url { font-size: 12px; color: #999; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { text-align: center; padding: 32px; color: #999; }
@@ -186,6 +218,10 @@ onMounted(load)
 .field__input { border: 1.5px solid #e0e0e0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; }
 .field__input:focus { border-color: #8127E0; }
 .field__textarea { min-height: 80px; resize: vertical; font-family: inherit; }
+.field__hint { font-size: 12px; color: #888; margin: -4px 0 4px; }
+.field__file { padding: 8px 0; font-size: 13px; }
+.img-preview-wrap { margin-top: 8px; }
+.img-preview { max-height: 120px; max-width: 100%; border-radius: 10px; object-fit: contain; background: #f5f5f7; }
 .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; cursor: pointer; padding-bottom: 10px; }
 .error-msg { font-size: 13px; color: #ff3b30; }
 </style>

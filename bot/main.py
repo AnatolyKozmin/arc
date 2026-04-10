@@ -263,6 +263,20 @@ async def cmd_start(msg: Message):
     else:
         await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=main_menu_kb())
 
+    # Запись в БД всех, кто нажал /start (как в мини-аппе)
+    try:
+        await api_post(
+            "/panel/users/ensure",
+            {
+                "telegram_id": msg.from_user.id,
+                "username": msg.from_user.username,
+                "first_name": msg.from_user.first_name or "",
+                "last_name": msg.from_user.last_name,
+            },
+        )
+    except Exception as e:
+        log.warning("ensure_user /start: %s", e)
+
 
 # ── Admin: /admin ─────────────────────────────────────────────────────────────
 

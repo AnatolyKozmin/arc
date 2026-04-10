@@ -99,6 +99,14 @@ export const useAdminStore = defineStore('admin', () => {
     await http.delete(`/panel/products/${id}`)
   }
 
+  /** Загрузка картинки (multipart); возвращает URL вида /api/uploads/... */
+  async function uploadImage(file) {
+    const fd = new FormData()
+    fd.append('file', file)
+    const r = await http.post('/panel/upload', fd)
+    return r.data.url
+  }
+
   // Achievements
   async function getAchievements() {
     const r = await http.get('/panel/achievements')
@@ -129,7 +137,7 @@ export const useAdminStore = defineStore('admin', () => {
     getStats,
     getUsers, updateBalance,
     getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
-    getProducts, createProduct, updateProduct, deleteProduct,
+    getProducts, createProduct, updateProduct, deleteProduct, uploadImage,
     getAchievements, createAchievement, updateAchievement, deleteAchievement, assignAchievement,
   }
 })
