@@ -14,7 +14,7 @@
         <DevPanel />
       </template>
 
-      <!-- Not in Telegram and not dev mode (auth failed without dev) -->
+      <!-- Не авторизованы после init (ошибка API / нет initData / не Telegram) -->
       <template v-else-if="!userStore.loading && !userStore.devMode && !userStore.isAuthenticated">
         <div class="app-loading">
           <div class="app-loading__logo"><ArcadiumIcon /></div>
@@ -22,10 +22,27 @@
             <p style="color:#ff3b30;font-size:13px;text-align:center;padding:0 24px">
               {{ userStore.error }}
             </p>
-            <p style="color:#aaa;font-size:11px">Проверь настройки бота</p>
+            <p style="color:#aaa;font-size:11px;text-align:center;padding:0 16px">
+              Частая причина — неверный BOT_TOKEN на сервере или URL мини-аппа в @BotFather. В Telegram можно нажать «Обновить».
+            </p>
+            <button
+              v-if="userStore.inTelegramWebApp"
+              type="button"
+              class="app-retry"
+              @click="reloadApp"
+            >
+              Обновить
+            </button>
+          </template>
+          <template v-else-if="!userStore.inTelegramWebApp">
+            <p>Откройте приложение через Telegram</p>
+            <p style="color:#aaa;font-size:12px;text-align:center;padding:0 20px">
+              Мини-апп работает только внутри клиента Telegram (кнопка у бота или меню).
+            </p>
           </template>
           <template v-else>
-            <p>Откройте через Telegram</p>
+            <p>Не удалось войти</p>
+            <button type="button" class="app-retry" @click="reloadApp">Обновить</button>
           </template>
         </div>
       </template>
@@ -70,6 +87,10 @@ const route = useRoute()
 const isDev = import.meta.env.DEV
 
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
+
+function reloadApp() {
+  window.location.reload()
+}
 
 onMounted(() => {
   if (!isAdminRoute.value) userStore.init()
@@ -134,6 +155,19 @@ onMounted(() => {
 }
 
 .dev-logout:active { opacity: 0.6; }
+
+.app-retry {
+  margin-top: 8px;
+  padding: 12px 28px;
+  border-radius: 14px;
+  border: none;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.app-retry:active { opacity: 0.85; }
 
 /* ── Page fade transition ─────────────────────────── */
 .fade-enter-active,

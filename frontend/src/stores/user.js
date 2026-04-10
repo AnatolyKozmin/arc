@@ -4,13 +4,48 @@ import { authApi, usersApi } from '@/api/client'
 
 const IS_DEV = import.meta.env.DEV
 
+/** Сырой initData приходит не в первый кадр — клиент Telegram заполняет строку чуть позже. */
+function getInitDataRaw() {
+  const s = window.Telegram?.WebApp?.initData
+  return s && String(s).trim() ? String(s) : ''
+}
+
+/**
+ * Ждём появления initData (обычно 0–300 ms, иногда дольше на iOS).
+ * Без этого в Telegram показывается «Откройте через Telegram», хотя мини-апп открыт верно.
+ */
+function waitForInitData(maxMs = 2500) {
+  const step = 50
+  const maxAttempts = Math.ceil(maxMs / step)
+  return new Promise((resolve) => {
+    let i = 0
+    const tick = () => {
+      const raw = getInitDataRaw()
+      if (raw) {
+        resolve(raw)
+        return
+      }
+      i += 1
+      if (i >= maxAttempts) {
+        resolve('')
+        return
+      }
+      setTimeout(tick, step)
+    }
+    tick()
+  })
+}
+
 export const useUserStore = defineStore('user', () => {
   const user = ref(null)
   const token = ref(localStorage.getItem('ark_token'))
   // Start as true so we don't flash "Откройте через Telegram" on first load
   const loading = ref(true)
   const error = ref(null)
-  const devMode = ref(IS_DEV && !window.Telegram?.WebApp?.initData)
+  /** В DEV: панель входа без Telegram. Не привязываем к initData при импорте модуля — он ещё пустой. */
+  const devMode = ref(IS_DEV)
+  /** Есть объект Telegram.WebApp (открыто внутри клиента Telegram). */
+  const inTelegramWebApp = ref(false)
 
   const isAuthenticated = computed(() => !!token.value && !!user.value)
   const isRegistered = computed(() => user.value?.is_registered ?? false)
@@ -19,26 +54,57 @@ export const useUserStore = defineStore('user', () => {
 
   async function init() {
     loading.value = true
+    error.value = null
+    const tg = window.Telegram?.WebApp
+    inTelegramWebApp.value = !!tg
+
     try {
-      // If already have a token (e.g. page reload), just re-fetch user
+      tg?.ready()
+      tg?.expand()
+
+      // Уже есть сессия (перезагрузка страницы)
       if (token.value) {
         await fetchMe()
-        if (user.value) return
+        if (user.value) {
+          devMode.value = false
+          return
+        }
       }
 
-      const tg = window.Telegram?.WebApp
-      if (tg?.initData) {
-        tg.ready()
-        tg.expand()
-        const res = await authApi.telegram(tg.initData)
+      // Ждём initData — критично для корректной работы в Telegram
+      const initData = await waitForInitData()
+      inTelegramWebApp.value = !!window.Telegram?.WebApp
+
+      if (initData) {
+        devMode.value = false
+        const res = await authApi.telegram(initData)
         token.value = res.data.access_token
         localStorage.setItem('ark_token', token.value)
         user.value = res.data.user
+        return
       }
-      // If no initData and no stored token → devMode panel will show
+
+      // Нет initData после ожидания
+      if (IS_DEV && !inTelegramWebApp.value) {
+        // Локальная разработка в браузере без Telegram
+        devMode.value = true
+        return
+      }
+
+      if (inTelegramWebApp.value) {
+        // Внутри Telegram, но initData так и не пришёл
+        error.value =
+          'Не удалось получить данные входа Telegram. Закройте мини-апп и откройте снова через кнопку в боте или меню (не как обычную ссылку в браузере).'
+        devMode.value = false
+        return
+      }
+
+      // Не Telegram и не dev
+      devMode.value = false
     } catch (e) {
       const detail = e.response?.data?.detail ?? e.message ?? 'Ошибка авторизации'
       error.value = detail
+      devMode.value = false
       console.error('[auth]', detail, e)
     } finally {
       loading.value = false
@@ -103,6 +169,7 @@ export const useUserStore = defineStore('user', () => {
     loading,
     error,
     devMode,
+    inTelegramWebApp,
     isAuthenticated,
     isRegistered,
     isAdmin,
