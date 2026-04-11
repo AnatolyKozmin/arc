@@ -93,7 +93,11 @@ function reloadApp() {
 }
 
 onMounted(() => {
-  if (!isAdminRoute.value) userStore.init()
+  if (isAdminRoute.value) {
+    userStore.loading = false
+    return
+  }
+  userStore.init()
 })
 </script>
 

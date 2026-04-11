@@ -42,6 +42,9 @@ function waitForInitData(maxMs = 2500) {
   })
 }
 
+/** Один параллельный init (Strict Mode / повторный mount не должны гонять два init). */
+let initInFlight = null
+
 export const useUserStore = defineStore('user', () => {
   const user = ref(null)
   const token = ref(localStorage.getItem('ark_token'))
@@ -59,64 +62,69 @@ export const useUserStore = defineStore('user', () => {
   const isOrganizer = computed(() => ['admin', 'organizer'].includes(user.value?.role))
 
   async function init() {
-    loading.value = true
-    error.value = null
-    const tg = window.Telegram?.WebApp
-    inTelegramWebApp.value = !!tg
+    if (initInFlight) return initInFlight
 
-    try {
-      // ready/expand — в src/telegram/bootstrapWebApp.js при старте
+    initInFlight = (async () => {
+      loading.value = true
+      error.value = null
+      const tg = window.Telegram?.WebApp
+      inTelegramWebApp.value = !!tg
 
-      // Уже есть сессия (перезагрузка страницы)
-      if (token.value) {
-        await fetchMe()
-        if (user.value) {
+      try {
+        // ready/expand — в src/telegram/bootstrapWebApp.js при старте
+
+        // Уже есть сессия (перезагрузка страницы)
+        if (token.value) {
+          await fetchMe()
+          if (user.value) {
+            devMode.value = false
+            return
+          }
+        }
+
+        // Ждём initData — критично для корректной работы в Telegram
+        const initData = await waitForInitData()
+        inTelegramWebApp.value = !!window.Telegram?.WebApp
+
+        if (initData) {
+          devMode.value = false
+          const res = await authApi.telegram(initData)
+          token.value = res.data.access_token
+          localStorage.setItem('ark_token', token.value)
+          user.value = res.data.user
+          try {
+            sessionStorage.removeItem(TG_INIT_DATA_STORAGE_KEY)
+          } catch (_) {}
+          return
+        }
+
+        // Нет initData после ожидания
+        if (IS_DEV && !inTelegramWebApp.value) {
+          devMode.value = true
+          return
+        }
+
+        if (inTelegramWebApp.value) {
+          error.value =
+            'Не удалось получить данные входа Telegram. Закройте мини-апп и откройте снова через кнопку в боте или меню (не как обычную ссылку в браузере).'
           devMode.value = false
           return
         }
-      }
 
-      // Ждём initData — критично для корректной работы в Telegram
-      const initData = await waitForInitData()
-      inTelegramWebApp.value = !!window.Telegram?.WebApp
-
-      if (initData) {
         devMode.value = false
-        const res = await authApi.telegram(initData)
-        token.value = res.data.access_token
-        localStorage.setItem('ark_token', token.value)
-        user.value = res.data.user
-        try {
-          sessionStorage.removeItem(TG_INIT_DATA_STORAGE_KEY)
-        } catch (_) {}
-        return
-      }
-
-      // Нет initData после ожидания
-      if (IS_DEV && !inTelegramWebApp.value) {
-        // Локальная разработка в браузере без Telegram
-        devMode.value = true
-        return
-      }
-
-      if (inTelegramWebApp.value) {
-        // Внутри Telegram, но initData так и не пришёл
-        error.value =
-          'Не удалось получить данные входа Telegram. Закройте мини-апп и откройте снова через кнопку в боте или меню (не как обычную ссылку в браузере).'
+      } catch (e) {
+        const detail = e.response?.data?.detail ?? e.message ?? 'Ошибка авторизации'
+        error.value = detail
         devMode.value = false
-        return
+        console.error('[auth]', detail, e)
+      } finally {
+        loading.value = false
       }
+    })()
 
-      // Не Telegram и не dev
-      devMode.value = false
-    } catch (e) {
-      const detail = e.response?.data?.detail ?? e.message ?? 'Ошибка авторизации'
-      error.value = detail
-      devMode.value = false
-      console.error('[auth]', detail, e)
-    } finally {
-      loading.value = false
-    }
+    return initInFlight.finally(() => {
+      initInFlight = null
+    })
   }
 
   async function devLogin(params) {

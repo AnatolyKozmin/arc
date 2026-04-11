@@ -15,13 +15,16 @@ client.interceptors.request.use((config) => {
 
 client.interceptors.response.use(
   (response) => response,
-  (error) => {
-    // Only reload on 401 for protected endpoints (not auth itself)
+  async (error) => {
     const url = error.config?.url ?? ''
     const isAuthEndpoint = url.includes('/auth/')
     if (error.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('ark_token')
-      window.location.reload()
+      try {
+        const { useUserStore } = await import('@/stores/user')
+        useUserStore().logout()
+      } catch (_) {}
+      /** Не делаем location.reload(): при битом JWT получался цикл reload → init → /users/me 401 → reload… */
     }
     return Promise.reject(error)
   }
