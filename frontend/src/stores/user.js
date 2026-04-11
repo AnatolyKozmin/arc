@@ -65,8 +65,7 @@ export const useUserStore = defineStore('user', () => {
     inTelegramWebApp.value = !!tg
 
     try {
-      tg?.ready()
-      tg?.expand()
+      // ready/expand — в src/telegram/bootstrapWebApp.js при старте
 
       // Уже есть сессия (перезагрузка страницы)
       if (token.value) {
