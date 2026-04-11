@@ -5,8 +5,11 @@ Arkadium 2026 — Telegram Bot
 """
 
 import asyncio
+import html
 import logging
 import os
+from collections import Counter
+
 import httpx
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
@@ -131,6 +134,50 @@ async def is_admin(user_id: int) -> bool:
         return True
     db_admins = await get_db_admins()
     return user_id in db_admins
+
+
+def _telegram_error_summary(exc: BaseException) -> str:
+    """Короткое описание ошибки Telegram API для отчёта."""
+    msg = getattr(exc, "message", None) or str(exc) or type(exc).__name__
+    return f"{type(exc).__name__}: {msg}"[:400]
+
+
+def _format_mailing_report(
+    *,
+    title: str,
+    total_recipients: int,
+    sent: int,
+    failures: list[tuple[int, str]],
+    sample_limit: int = 50,
+) -> str:
+    """Текст отчёта: сколько в списке, успех, ошибки, разбивка по типам, примеры id."""
+    failed = len(failures)
+    lines = [
+        f"✅ <b>{html.escape(title)}</b>",
+        "",
+        f"📋 Получателей в списке: <b>{total_recipients}</b>",
+        f"📤 Успешно отправлено: <b>{sent}</b>",
+        f"❌ С ошибкой: <b>{failed}</b>",
+    ]
+    if not failures:
+        return "\n".join(lines)
+
+    lines.extend(["", "<b>Сводка по тексту ошибок:</b>"])
+    for err_text, cnt in Counter(m for _, m in failures).most_common(20):
+        short = err_text[:180] + ("…" if len(err_text) > 180 else "")
+        lines.append(f"• {html.escape(short)} — <b>{cnt}×</b>")
+
+    lines.extend(["", f"<b>Не доставлено (первые {min(sample_limit, len(failures))}):</b>"])
+    for tid, err in failures[:sample_limit]:
+        e = err.replace("\n", " ")[:150]
+        lines.append(f"• <code>{tid}</code> — {html.escape(e)}")
+    if len(failures) > sample_limit:
+        lines.append(f"… и ещё <b>{len(failures) - sample_limit}</b>.")
+
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3990] + "\n…"
+    return text
 
 
 def mini_app_kb() -> InlineKeyboardMarkup:
@@ -396,27 +443,28 @@ async def broadcast_confirm(msg: Message, state: FSMContext, bot: Bot):
         return await status_msg.edit_text(f"❌ Не удалось получить пользователей: {e}")
 
     sent = 0
-    failed = 0
+    failures: list[tuple[int, str]] = []
     kb = main_menu_kb()
+    targets = [u for u in users if u.get("telegram_id")]
+    total_recipients = len(targets)
 
-    for u in users:
-        tg_id = u.get("telegram_id")
-        if not tg_id:
-            continue
+    for u in targets:
+        tg_id = u["telegram_id"]
         try:
             await bot.send_message(tg_id, text, parse_mode=ParseMode.HTML, reply_markup=kb)
             sent += 1
             await asyncio.sleep(0.05)  # Telegram rate limit ~20 msg/s
-        except Exception:
-            failed += 1
+        except Exception as ex:
+            failures.append((tg_id, _telegram_error_summary(ex)))
+            log.warning("broadcast send to %s: %s", tg_id, ex)
 
-    await status_msg.edit_text(
-        f"✅ Рассылка завершена!\n"
-        f"📤 Отправлено: <b>{sent}</b>\n"
-        f"❌ Не доставлено: <b>{failed}</b>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_menu_kb(),
+    report = _format_mailing_report(
+        title="Рассылка (reply-клавиатура)",
+        total_recipients=total_recipients,
+        sent=sent,
+        failures=failures,
     )
+    await status_msg.edit_text(report, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
 
 
 # ── /rass_6523 — рассылка с inline web_app (нормальная кнопка входа) ────────────
@@ -488,12 +536,12 @@ async def rass_6523_confirm(msg: Message, state: FSMContext, bot: Bot):
 
     kb = mini_app_kb()
     sent = 0
-    failed = 0
+    failures: list[tuple[int, str]] = []
+    targets = [u for u in users if u.get("telegram_id")]
+    total_recipients = len(targets)
 
-    for u in users:
-        tg_id = u.get("telegram_id")
-        if not tg_id:
-            continue
+    for u in targets:
+        tg_id = u["telegram_id"]
         try:
             await bot.send_message(
                 tg_id,
@@ -504,16 +552,16 @@ async def rass_6523_confirm(msg: Message, state: FSMContext, bot: Bot):
             sent += 1
             await asyncio.sleep(0.05)
         except Exception as ex:
+            failures.append((tg_id, _telegram_error_summary(ex)))
             log.warning("rass_6523 send to %s: %s", tg_id, ex)
-            failed += 1
 
-    await status_msg.edit_text(
-        f"✅ Готово (inline web_app).\n"
-        f"📤 Отправлено: <b>{sent}</b>\n"
-        f"❌ Не доставлено: <b>{failed}</b>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=admin_menu_kb(),
+    report = _format_mailing_report(
+        title="Рассылка /rass_6523 (inline web_app)",
+        total_recipients=total_recipients,
+        sent=sent,
+        failures=failures,
     )
+    await status_msg.edit_text(report, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
 
 
 # ── Add Coins ─────────────────────────────────────────────────────────────────
