@@ -30,7 +30,7 @@
               {{ userStore.error }}
             </p>
             <p style="color:#aaa;font-size:11px;text-align:center;padding:0 16px">
-              Частая причина — неверный BOT_TOKEN на сервере или URL мини-аппа в @BotFather. В Telegram можно нажать «Обновить».
+              Если открываете из Telegram, но ошибка остаётся: проверьте BOT_TOKEN на сервере и URL мини-аппа в @BotFather. Можно нажать «Обновить».
             </p>
             <button
               v-if="userStore.inTelegramWebApp"

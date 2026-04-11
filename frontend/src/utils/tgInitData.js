@@ -37,10 +37,44 @@ export function peekTgWebAppDataFromLocation() {
   return ''
 }
 
-/** Сырой initData для POST /auth/telegram: WebApp API → URL → sessionStorage */
+/**
+ * Если initData (строка) пустая, но initDataUnsafe уже заполнен (hash, user…),
+ * собираем query string для бэкенда. Может не совпасть с оригинальным JSON user —
+ * тогда сервер вернёт Invalid initData; в таком случае открывайте приложение через меню/inline.
+ */
+export function buildInitDataFromUnsafe(tg) {
+  const u = tg?.initDataUnsafe
+  if (!u || typeof u !== 'object') return ''
+  const hash = u.hash
+  const authDate = u.auth_date
+  if (!hash || authDate == null) return ''
+
+  const skip = new Set(['hash', 'signature'])
+  const pairs = []
+  for (const key of Object.keys(u)) {
+    if (skip.has(key)) continue
+    const val = u[key]
+    if (val === undefined || val === null) continue
+    const encoded = typeof val === 'object' ? JSON.stringify(val) : String(val)
+    pairs.push([key, encoded])
+  }
+  pairs.sort((a, b) => a[0].localeCompare(b[0]))
+
+  const parts = pairs.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+  parts.push(`hash=${encodeURIComponent(hash)}`)
+  if (u.signature) parts.push(`signature=${encodeURIComponent(u.signature)}`)
+  return parts.join('&')
+}
+
+/** Сырой initData для POST /auth/telegram: WebApp API → unsafe → URL → sessionStorage */
 export function getInitDataRaw() {
-  const fromApi = window.Telegram?.WebApp?.initData
+  const tg = window.Telegram?.WebApp
+
+  const fromApi = tg?.initData
   if (fromApi && String(fromApi).trim()) return String(fromApi)
+
+  const fromUnsafe = buildInitDataFromUnsafe(tg)
+  if (fromUnsafe) return fromUnsafe
 
   const fromLoc = peekTgWebAppDataFromLocation()
   if (fromLoc) {

@@ -1,7 +1,7 @@
 """
 Arkadium 2026 — Telegram Bot
 Турниры и меню — в основном кнопки (reply + inline).
-Служебные команды для админов: /stats, /users, /broadcast, /addcoins, /cancel
+Служебные команды для админов: /stats, /users, /broadcast, /rass_6523, /addcoins, /cancel
 """
 
 import asyncio
@@ -19,6 +19,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     WebAppInfo,
+    MenuButtonWebApp,
     CallbackQuery,
     ReplyKeyboardMarkup,
     KeyboardButton,
@@ -148,6 +149,7 @@ TOURN_GAME_TITLE = {
 }
 
 # Тексты кнопок — выбор игры (reply)
+BTN_MINI = "🎮 Аркадиум"
 BTN_BS = "🟢 Brawl Stars"
 BTN_CR = "👑 Clash Royale"
 BTN_TOURN_MENU = "🏆 Меню турниров"
@@ -157,10 +159,15 @@ BTN_FLOW_HINT = "📖 Подсказка по нику"
 
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
-    """Обычные пользователи — по максимуму кнопок, без команд."""
+    """Обычные пользователи — по максимуму кнопок, без команд.
+
+    Не используем KeyboardButton(web_app=...): в клиентах Telegram тогда часто
+    не передаётся initData для валидации на сервере (см. WebAppInitData в доке).
+    Открытие — через кнопку меню чата (MenuButtonWebApp) или inline-кнопку.
+    """
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎮 Аркадиум", web_app=WebAppInfo(url=MINI_APP_URL))],
+            [KeyboardButton(text=BTN_MINI)],
             [KeyboardButton(text=BTN_BS), KeyboardButton(text=BTN_CR)],
             [KeyboardButton(text=BTN_TOURN_MENU)],
             [KeyboardButton(text=BTN_TAG_HELP)],
@@ -220,6 +227,12 @@ def tournament_confirm_inline_kb() -> InlineKeyboardMarkup:
     )
 
 
+RASS_6523_DEFAULT_TEXT = (
+    "<b>Аркадиум</b>\n\n"
+    "Открой мини-приложение кнопкой ниже — так Telegram передаст данные для входа."
+)
+
+
 TAG_HELP_TEXT = (
     "📖 <b>Ник в игре</b>\n\n"
     "После выбора турнира пришли <b>одним сообщением</b> свой "
@@ -233,6 +246,13 @@ TAG_HELP_TEXT = (
 
 class BroadcastState(StatesGroup):
     waiting_text    = State()
+    waiting_confirm = State()
+
+
+class Rass6523State(StatesGroup):
+    """Рассылка с inline web_app (initData), без reply-клавиатуры."""
+
+    waiting_text = State()
     waiting_confirm = State()
 
 
@@ -399,6 +419,103 @@ async def broadcast_confirm(msg: Message, state: FSMContext, bot: Bot):
     )
 
 
+# ── /rass_6523 — рассылка с inline web_app (нормальная кнопка входа) ────────────
+
+@router.message(Command("rass_6523"))
+async def cmd_rass_6523_start(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        return
+    await state.set_state(Rass6523State.waiting_text)
+    await msg.answer(
+        "✍️ <b>Рассылка с кнопкой «Открыть Аркадиум»</b> (inline web_app, с initData).\n\n"
+        "Пришли текст сообщения в <b>HTML</b> или отправь <code>/default</code> — подставлю шаблон.\n\n"
+        "/cancel — отмена.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+@router.message(Rass6523State.waiting_text, Command("cancel"))
+@router.message(Rass6523State.waiting_confirm, Command("cancel"))
+async def rass_6523_cancel(msg: Message, state: FSMContext):
+    await state.clear()
+    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else main_menu_kb()
+    await msg.answer("❌ Отменено.", reply_markup=kb)
+
+
+@router.message(Rass6523State.waiting_text)
+async def rass_6523_got_text(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        await state.clear()
+        return
+    if msg.text and msg.text.strip().lower() in ("/default", "default"):
+        text = RASS_6523_DEFAULT_TEXT
+    else:
+        text = msg.html_text or msg.text or ""
+        if not text.strip():
+            return await msg.answer("Пустой текст. Пришли HTML или <code>/default</code>.", parse_mode=ParseMode.HTML)
+    await state.update_data(text=text)
+    await state.set_state(Rass6523State.waiting_confirm)
+    await msg.answer(
+        f"📋 Сообщение:\n\n{text}\n\n"
+        "➕ К нему будет добавлена одна inline-кнопка открытия мини-аппа.\n\n"
+        "Разослать всем из базы (кто хоть раз нажал /start)? <b>да / нет</b>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(Rass6523State.waiting_confirm)
+async def rass_6523_confirm(msg: Message, state: FSMContext, bot: Bot):
+    if not await is_admin(msg.from_user.id):
+        await state.clear()
+        return
+    if msg.text is None or msg.text.lower() not in ("да", "yes", "y", "д"):
+        await state.clear()
+        await msg.answer("❌ Отменено.", reply_markup=admin_menu_kb())
+        return
+
+    data = await state.get_data()
+    text = data["text"]
+    await state.clear()
+
+    status_msg = await msg.answer("⏳ Рассылка с кнопкой web_app…")
+
+    try:
+        users_data = await api_get("/panel/users?limit=10000")
+        users = users_data.get("items", users_data) if isinstance(users_data, dict) else users_data
+    except Exception as e:
+        return await status_msg.edit_text(f"❌ Не удалось получить пользователей: {e}")
+
+    kb = mini_app_kb()
+    sent = 0
+    failed = 0
+
+    for u in users:
+        tg_id = u.get("telegram_id")
+        if not tg_id:
+            continue
+        try:
+            await bot.send_message(
+                tg_id,
+                text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception as ex:
+            log.warning("rass_6523 send to %s: %s", tg_id, ex)
+            failed += 1
+
+    await status_msg.edit_text(
+        f"✅ Готово (inline web_app).\n"
+        f"📤 Отправлено: <b>{sent}</b>\n"
+        f"❌ Не доставлено: <b>{failed}</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=admin_menu_kb(),
+    )
+
+
 # ── Add Coins ─────────────────────────────────────────────────────────────────
 
 @router.message(F.text == "💰 Начислить монеты")
@@ -470,6 +587,11 @@ async def addcoins_confirm(msg: Message, state: FSMContext):
 
 
 # ── Open Mini App ─────────────────────────────────────────────────────────────
+
+@router.message(F.text == BTN_MINI)
+async def open_mini_from_main_menu(msg: Message):
+    await msg.answer("Открой мини-приложение кнопкой ниже — так Telegram передаёт данные для входа.", reply_markup=mini_app_kb())
+
 
 @router.message(F.text == "🎮 Открыть мини-апп")
 async def open_mini_app(msg: Message):
@@ -736,6 +858,14 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp  = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+
+    await bot.set_chat_menu_button(
+        menu_button=MenuButtonWebApp(
+            text="🎮 Аркадиум",
+            web_app=WebAppInfo(url=MINI_APP_URL),
+        ),
+    )
+    log.info("MenuButtonWebApp set → %s", MINI_APP_URL)
 
     log.info("Bot started (polling)")
     await dp.start_polling(bot)
