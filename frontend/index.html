@@ -7,21 +7,34 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Аркадиум</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- До Vue: hash с tgWebAppData не должен теряться (hash-router перезаписывал бы фрагмент). -->
+    <!-- До Vue: сохранить tgWebAppData из URL (расширенный разбор фрагмента). -->
     <script>
       (function () {
         try {
           function store(raw) {
             if (raw && String(raw).trim()) sessionStorage.setItem('ark_tg_init_data_raw', raw)
           }
-          var h = window.location.hash || ''
-          if (h.length > 1) {
-            var p = new URLSearchParams(h.slice(1))
-            store(p.get('tgWebAppData'))
+          var hash = window.location.hash || ''
+          var frag = hash.indexOf('#') === 0 ? hash.slice(1) : hash
+          if (frag.indexOf('/') === 0) {
+            var j = frag.indexOf('tgWebAppData=')
+            if (j !== -1) frag = frag.slice(j)
           }
+          var search = (window.location.search || '').replace(/^\?/, '')
+          ;[frag, search, [frag, search].filter(Boolean).join('&')].forEach(function (part) {
+            if (!part) return
+            var p = new URLSearchParams(part)
+            store(p.get('tgWebAppData'))
+          })
           if (!sessionStorage.getItem('ark_tg_init_data_raw')) {
-            var q = new URLSearchParams(window.location.search || '')
-            store(q.get('tgWebAppData'))
+            var m = (window.location.href || '').match(/[#?&]tgWebAppData=([^&]+)/)
+            if (m && m[1]) {
+              try {
+                store(decodeURIComponent(m[1]))
+              } catch (e) {
+                store(m[1])
+              }
+            }
           }
         } catch (e) {}
       })()

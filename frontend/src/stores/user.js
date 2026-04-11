@@ -1,26 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi, usersApi } from '@/api/client'
+import { getInitDataRaw, ARK_TG_INIT_STORAGE_KEY } from '@/utils/tgInitData'
 
 const IS_DEV = import.meta.env.DEV
-const TG_INIT_DATA_STORAGE_KEY = 'ark_tg_init_data_raw'
-
-/** Сырой initData: WebApp API или fallback из sessionStorage (сохранён из location.hash до роутера). */
-function getInitDataRaw() {
-  const fromApi = window.Telegram?.WebApp?.initData
-  if (fromApi && String(fromApi).trim()) return String(fromApi)
-  try {
-    const fromStore = sessionStorage.getItem(TG_INIT_DATA_STORAGE_KEY)
-    if (fromStore && String(fromStore).trim()) return String(fromStore)
-  } catch (_) {}
-  return ''
-}
 
 /**
- * Ждём появления initData (обычно 0–300 ms, иногда дольше на iOS).
- * Без этого в Telegram показывается «Откройте через Telegram», хотя мини-апп открыт верно.
+ * Ждём появления initData (на iOS/WebView иногда 1–5+ с).
+ * На каждом шаге снова читаем URL и WebApp — не только sessionStorage с первого кадра.
  */
-function waitForInitData(maxMs = 2500) {
+function waitForInitData(maxMs = 10000) {
   const step = 50
   const maxAttempts = Math.ceil(maxMs / step)
   return new Promise((resolve) => {
@@ -93,7 +82,7 @@ export const useUserStore = defineStore('user', () => {
           localStorage.setItem('ark_token', token.value)
           user.value = res.data.user
           try {
-            sessionStorage.removeItem(TG_INIT_DATA_STORAGE_KEY)
+            sessionStorage.removeItem(ARK_TG_INIT_STORAGE_KEY)
           } catch (_) {}
           return
         }
