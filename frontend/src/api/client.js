@@ -5,6 +5,9 @@ const client = axios.create({
   timeout: 15000,
 })
 
+/** Один logout на пачку параллельных 401 — меньше дерганий Pinia/шаблона. */
+let logout401Scheduled = false
+
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('ark_token')
   if (token) {
@@ -20,11 +23,16 @@ client.interceptors.response.use(
     const isAuthEndpoint = url.includes('/auth/')
     if (error.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('ark_token')
-      try {
-        const { useUserStore } = await import('@/stores/user')
-        useUserStore().logout()
-      } catch (_) {}
-      /** Не делаем location.reload(): при битом JWT получался цикл reload → init → /users/me 401 → reload… */
+      if (!logout401Scheduled) {
+        logout401Scheduled = true
+        queueMicrotask(async () => {
+          logout401Scheduled = false
+          try {
+            const { useUserStore } = await import('@/stores/user')
+            useUserStore().logout()
+          } catch (_) {}
+        })
+      }
     }
     return Promise.reject(error)
   }

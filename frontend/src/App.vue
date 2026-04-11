@@ -9,13 +9,20 @@
     <!-- Mobile app -->
     <template v-else>
 
+      <!-- Пока init() не закончен — не монтируем экраны/нижнее меню (иначе HomeView шлёт API до сессии → скачки и 401) -->
+      <template v-if="userStore.loading">
+        <div class="app-boot">
+          <div class="app-boot__logo"><ArcadiumIcon /></div>
+        </div>
+      </template>
+
       <!-- Dev mode login panel -->
-      <template v-if="userStore.devMode && !userStore.isAuthenticated">
+      <template v-else-if="userStore.devMode && !userStore.isAuthenticated">
         <DevPanel />
       </template>
 
       <!-- Не авторизованы после init (ошибка API / нет initData / не Telegram) -->
-      <template v-else-if="!userStore.loading && !userStore.devMode && !userStore.isAuthenticated">
+      <template v-else-if="!userStore.devMode && !userStore.isAuthenticated">
         <div class="app-loading">
           <div class="app-loading__logo"><ArcadiumIcon /></div>
           <template v-if="userStore.error">
@@ -56,9 +63,7 @@
       <template v-else>
         <main class="app-content">
           <RouterView v-slot="{ Component }">
-            <Transition name="fade" mode="out-in">
-              <component :is="Component" :key="$route.name" />
-            </Transition>
+            <component :is="Component" :key="$route.name" />
           </RouterView>
         </main>
         <BottomNav />
@@ -105,9 +110,29 @@ onMounted(() => {
 .app {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  height: 100dvh;
+  flex: 1;
+  min-height: 0;
+  height: var(--tg-viewport-stable-height, 100dvh);
   background: var(--color-bg);
+}
+
+.app-boot {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.app-boot__logo {
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .app-content {
@@ -172,14 +197,4 @@ onMounted(() => {
   cursor: pointer;
 }
 .app-retry:active { opacity: 0.85; }
-
-/* ── Page fade transition ─────────────────────────── */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.18s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
 </style>

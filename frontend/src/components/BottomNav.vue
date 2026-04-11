@@ -103,8 +103,7 @@ const indicatorStyle = computed(() => {
   border-radius: 40px;
   background: rgba(216, 216, 216, 0.6);
   pointer-events: none;
-  transition: left 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-              width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: left 0.2s ease, width 0.2s ease;
 }
 
 .bottom-nav__item {
