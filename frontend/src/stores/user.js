@@ -3,11 +3,17 @@ import { ref, computed } from 'vue'
 import { authApi, usersApi } from '@/api/client'
 
 const IS_DEV = import.meta.env.DEV
+const TG_INIT_DATA_STORAGE_KEY = 'ark_tg_init_data_raw'
 
-/** Сырой initData приходит не в первый кадр — клиент Telegram заполняет строку чуть позже. */
+/** Сырой initData: WebApp API или fallback из sessionStorage (сохранён из location.hash до роутера). */
 function getInitDataRaw() {
-  const s = window.Telegram?.WebApp?.initData
-  return s && String(s).trim() ? String(s) : ''
+  const fromApi = window.Telegram?.WebApp?.initData
+  if (fromApi && String(fromApi).trim()) return String(fromApi)
+  try {
+    const fromStore = sessionStorage.getItem(TG_INIT_DATA_STORAGE_KEY)
+    if (fromStore && String(fromStore).trim()) return String(fromStore)
+  } catch (_) {}
+  return ''
 }
 
 /**
@@ -81,6 +87,9 @@ export const useUserStore = defineStore('user', () => {
         token.value = res.data.access_token
         localStorage.setItem('ark_token', token.value)
         user.value = res.data.user
+        try {
+          sessionStorage.removeItem(TG_INIT_DATA_STORAGE_KEY)
+        } catch (_) {}
         return
       }
 
