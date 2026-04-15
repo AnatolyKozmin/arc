@@ -81,7 +81,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
-import axios from 'axios'
+import client from '@/api/client'
 import AppHeader from '@/components/AppHeader.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -97,10 +97,6 @@ function getInitials(user) {
   if (!user) return 'TG'
   const parts = [user.first_name, user.last_name].filter(Boolean)
   return parts.map(p => p[0]).join('').toUpperCase() || 'TG'
-}
-
-function getAuthHeader() {
-  return { Authorization: `Bearer ${localStorage.getItem('token')}` }
 }
 
 async function openScanner() {
@@ -127,7 +123,8 @@ async function lookupToken(token) {
   scanning.value = true
   error.value = null
   try {
-    const res = await axios.get(`/api/users/scan/${token}`, { headers: getAuthHeader() })
+    const enc = encodeURIComponent(token)
+    const res = await client.get(`/users/scan/${enc}`)
     scannedUser.value = res.data
   } catch (e) {
     error.value = e.response?.data?.detail || 'QR-код не найден'
@@ -141,12 +138,11 @@ async function quickAdd(amount) {
   if (!amount || !scannedUser.value || adding.value) return
   adding.value = true
   try {
-    await axios.patch(
-      `/api/panel/users/${scannedUser.value.id}/balance`,
-      { amount, reason: 'Начисление организатором (QR)' },
-      { headers: getAuthHeader() }
-    )
-    scannedUser.value.balance += amount
+    const res = await client.post(`/users/${scannedUser.value.id}/balance`, {
+      amount,
+      reason: 'Начисление организатором (QR)',
+    })
+    scannedUser.value = res.data
     window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
     customAmount.value = null
   } catch (e) {

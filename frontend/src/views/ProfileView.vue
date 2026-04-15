@@ -247,11 +247,12 @@ async function claimAchievement(ua) {
   }
 }
 
+/** Payload QR: только цифры Telegram ID — так же ожидает GET /users/scan/{identifier} на бэкенде. */
 async function renderQr() {
   await nextTick()
-  const tgId = userStore.user?.telegram_id
-  if (!qrCanvas.value || !tgId) return
-  await QRCode.toCanvas(qrCanvas.value, String(tgId), {
+  const qrPayload = userStore.user?.telegram_id
+  if (!qrCanvas.value || qrPayload == null) return
+  await QRCode.toCanvas(qrCanvas.value, String(qrPayload), {
     width: 220,
     margin: 2,
     color: { dark: '#000000', light: '#ffffff' },

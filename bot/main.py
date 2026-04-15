@@ -464,7 +464,8 @@ async def broadcast_confirm(msg: Message, state: FSMContext, bot: Bot):
         sent=sent,
         failures=failures,
     )
-    await status_msg.edit_text(report, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
+    await status_msg.edit_text(report, parse_mode=ParseMode.HTML)
+    await msg.answer("⌨️ Меню админа:", reply_markup=admin_menu_kb())
 
 
 # ── /rass_6523 — рассылка с inline web_app (нормальная кнопка входа) ────────────
@@ -561,7 +562,8 @@ async def rass_6523_confirm(msg: Message, state: FSMContext, bot: Bot):
         sent=sent,
         failures=failures,
     )
-    await status_msg.edit_text(report, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
+    await status_msg.edit_text(report, parse_mode=ParseMode.HTML)
+    await msg.answer("⌨️ Меню админа:", reply_markup=admin_menu_kb())
 
 
 # ── Add Coins ─────────────────────────────────────────────────────────────────

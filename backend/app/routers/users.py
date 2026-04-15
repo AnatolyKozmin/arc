@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -60,17 +62,25 @@ def scan_user_qr(
     operator: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Mini-app scan endpoint: look up user by telegram_id from QR code.
-    Requires organizer or admin role."""
+    """Скан QR: по цифрам — telegram_id. Если человека ещё не было в БД (не заходил в бота/приложение) — создаём запись с этим tg id, баланс 0. Иначе — существующий пользователь.
+    По нецифровой строке — поиск по qr_token (legacy)."""
     if operator.role not in ("organizer", "admin"):
         raise HTTPException(status_code=403, detail="Not enough permissions")
 
     user = None
     if identifier.isdigit():
-        user = db.query(models.User).filter(
-            models.User.telegram_id == int(identifier)
-        ).first()
-    if not user:
+        tid = int(identifier)
+        user = db.query(models.User).filter(models.User.telegram_id == tid).first()
+        if not user:
+            user = models.User(
+                telegram_id=tid,
+                first_name="Участник",
+                qr_token=str(uuid.uuid4()),
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+    else:
         user = db.query(models.User).filter(models.User.qr_token == identifier).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
