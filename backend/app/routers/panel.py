@@ -1,9 +1,11 @@
 """Admin web panel router — password-based login, full CRUD."""
+import re
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -134,13 +136,8 @@ class EnsureUserFromBot(BaseModel):
     last_name: Optional[str] = None
 
 
-@router.post("/users/ensure", response_model=PanelUserOut)
-def ensure_user_from_bot(
-    data: EnsureUserFromBot,
-    _: None = Depends(require_panel),
-    db: Session = Depends(get_db),
-):
-    """Upsert пользователя по telegram_id — вызывается ботом при /start."""
+def _upsert_user_from_ensure(db: Session, data: EnsureUserFromBot) -> models.User:
+    """Общая логика upsert для ensure и resolve по @username."""
     user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
     if not user:
         user = models.User(
@@ -163,6 +160,94 @@ def ensure_user_from_bot(
         db.commit()
         db.refresh(user)
     return user
+
+
+# Telegram: публичный @username, 5–32 символа, с буквы
+TG_USERNAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{4,31}$")
+
+
+def _normalize_public_username(raw: str) -> str:
+    s = (raw or "").strip().lstrip("@").strip()
+    if not s:
+        raise HTTPException(status_code=400, detail="Укажите username")
+    if not TG_USERNAME_RE.match(s):
+        raise HTTPException(
+            status_code=400,
+            detail="Некорректный username (латиница, цифры, _, от 5 до 32 символов)",
+        )
+    return s
+
+
+def _resolve_telegram_private_chat(username: str) -> Tuple[int, dict]:
+    """Telegram Bot API getChat — работает для пользователя, если он хотя бы раз писал боту / нажал Start."""
+    if not settings.bot_token or settings.bot_token == "test_bot_token":
+        raise HTTPException(
+            status_code=503,
+            detail="BOT_TOKEN не задан в настройках бэкенда",
+        )
+    try:
+        r = httpx.get(
+            f"https://api.telegram.org/bot{settings.bot_token}/getChat",
+            params={"chat_id": f"@{username}"},
+            timeout=15.0,
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Ошибка сети к Telegram: {e}") from e
+    payload = r.json()
+    if not payload.get("ok"):
+        err = str(payload.get("description", ""))
+        if "not found" in err.lower() or payload.get("error_code") == 400:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Пользователь не найден. Он должен хотя бы раз нажать Start у этого бота "
+                    "или написать ему — иначе Telegram не отдаёт профиль по @username."
+                ),
+            )
+        raise HTTPException(status_code=502, detail=f"Telegram: {err}")
+    chat = payload["result"]
+    if chat.get("type") != "private":
+        raise HTTPException(
+            status_code=400,
+            detail="Нужен @username участника (личный чат), не канал и не группа.",
+        )
+    tid = chat.get("id")
+    if tid is None or not isinstance(tid, int):
+        raise HTTPException(status_code=502, detail="Неожиданный ответ Telegram")
+    return tid, chat
+
+
+class EnsureUserByUsername(BaseModel):
+    """Добавить участника по публичному @username (через Bot API getChat)."""
+    username: str
+
+
+@router.post("/users/ensure", response_model=PanelUserOut)
+def ensure_user_from_bot(
+    data: EnsureUserFromBot,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    """Upsert пользователя по telegram_id — вызывается ботом при /start."""
+    return _upsert_user_from_ensure(db, data)
+
+
+@router.post("/users/ensure-by-username", response_model=PanelUserOut)
+def ensure_user_by_username(
+    data: EnsureUserByUsername,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    """Upsert по @username: резолв ID через getChat, затем как ensure."""
+    uname = _normalize_public_username(data.username)
+    tid, chat = _resolve_telegram_private_chat(uname)
+    payload = EnsureUserFromBot(
+        telegram_id=tid,
+        username=chat.get("username"),
+        first_name=chat.get("first_name") or "",
+        last_name=chat.get("last_name"),
+    )
+    return _upsert_user_from_ensure(db, payload)
 
 
 _ALLOWED_UPLOAD_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp"}

@@ -11,7 +11,7 @@
         @input="loadUsers"
       />
       <button type="button" class="btn-add" @click="openAddUser">
-        + Добавить по Telegram ID
+        + Добавить по @username
       </button>
     </div>
 
@@ -82,36 +82,36 @@
       </div>
     </div>
 
-    <!-- Добавить участника (ensure) -->
+    <!-- Добавить участника по @username (getChat) -->
     <div v-if="addModal" class="modal-overlay" @click.self="addModal = false">
       <div class="modal">
-        <h2 class="modal__title">Добавить участника</h2>
+        <h2 class="modal__title">Добавить по @username</h2>
         <p class="modal__hint">
-          Нужен числовой Telegram ID (например из @userinfobot). Если человек уже есть в базе — обновим @username и имя.
+          Публичный username в Telegram (латиница, без @). Человек должен хотя бы раз нажать
+          <strong>Start</strong> у вашего бота или написать ему — иначе Telegram не отдаёт профиль по имени.
+          Если уже в базе — обновим имя и @username из Telegram.
         </p>
 
         <div class="field">
-          <label class="field__label">Telegram ID *</label>
-          <input v-model.number="addTelegramId" type="number" class="field__input" placeholder="123456789" min="1" />
-        </div>
-        <div class="field">
-          <label class="field__label">@username (необязательно)</label>
-          <input v-model="addUsername" type="text" class="field__input" placeholder="username без @" />
-        </div>
-        <div class="field">
-          <label class="field__label">Имя</label>
-          <input v-model="addFirstName" type="text" class="field__input" placeholder="Участник" />
-        </div>
-        <div class="field">
-          <label class="field__label">Фамилия</label>
-          <input v-model="addLastName" type="text" class="field__input" placeholder="—" />
+          <label class="field__label">Username *</label>
+          <input
+            v-model="addPublicUsername"
+            type="text"
+            class="field__input"
+            placeholder="username или @username"
+            autocomplete="off"
+          />
         </div>
 
         <p v-if="addError" class="error-msg">{{ addError }}</p>
 
         <div class="modal__actions">
           <button class="btn-ghost" @click="addModal = false">Отмена</button>
-          <button class="btn-primary" :disabled="addSaving || !addTelegramId" @click="submitAddUser">
+          <button
+            class="btn-primary"
+            :disabled="addSaving || !addPublicUsername.trim()"
+            @click="submitAddUser"
+          >
             {{ addSaving ? '…' : 'Сохранить' }}
           </button>
         </div>
@@ -135,42 +135,31 @@ const balanceError = ref('')
 const saving = ref(false)
 
 const addModal = ref(false)
-const addTelegramId = ref(null)
-const addUsername = ref('')
-const addFirstName = ref('')
-const addLastName = ref('')
+const addPublicUsername = ref('')
 const addError = ref('')
 const addSaving = ref(false)
 
 function openAddUser() {
   addModal.value = true
-  addTelegramId.value = null
-  addUsername.value = ''
-  addFirstName.value = ''
-  addLastName.value = ''
+  addPublicUsername.value = ''
   addError.value = ''
 }
 
 function normalizeUsername(raw) {
-  const s = (raw || '').trim()
-  if (!s) return null
-  return s.replace(/^@/, '')
+  const s = (raw || '').trim().replace(/^@/, '').trim()
+  return s || null
 }
 
 async function submitAddUser() {
-  if (!addTelegramId.value || addTelegramId.value < 1) {
-    addError.value = 'Укажите корректный Telegram ID'
+  const u = normalizeUsername(addPublicUsername.value)
+  if (!u) {
+    addError.value = 'Укажите username'
     return
   }
   addSaving.value = true
   addError.value = ''
   try {
-    await store.ensureUser({
-      telegram_id: addTelegramId.value,
-      username: normalizeUsername(addUsername.value),
-      first_name: addFirstName.value.trim() || 'Участник',
-      last_name: addLastName.value.trim() || null,
-    })
+    await store.ensureUserByUsername({ username: u })
     addModal.value = false
     search.value = ''
     await loadUsers()

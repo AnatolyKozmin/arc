@@ -65,6 +65,12 @@ export const useAdminStore = defineStore('admin', () => {
     return r.data
   }
 
+  /** Резолв @username через Telegram Bot API и upsert (нужен BOT_TOKEN на бэкенде). */
+  async function ensureUserByUsername(payload) {
+    const r = await http.post('/panel/users/ensure-by-username', payload)
+    return r.data
+  }
+
   // Announcements
   async function getAnnouncements() {
     const r = await http.get('/panel/announcements')
@@ -141,7 +147,7 @@ export const useAdminStore = defineStore('admin', () => {
     token, loading, error, isLoggedIn,
     login, logout,
     getStats,
-    getUsers, updateBalance, ensureUser,
+    getUsers, updateBalance, ensureUser, ensureUserByUsername,
     getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
     getProducts, createProduct, updateProduct, deleteProduct, uploadImage,
     getAchievements, createAchievement, updateAchievement, deleteAchievement, assignAchievement,
