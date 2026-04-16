@@ -7,8 +7,9 @@ export const useLeaderboardStore = defineStore('leaderboard', () => {
   const currentUserRank = ref(0)
   const loading = ref(false)
 
-  async function fetch() {
-    if (loading.value) return
+  /** @param {{ force?: boolean }} [opts] — force=true обходит блокировку при параллельном запросе (обновление после начисления) */
+  async function fetch(opts = {}) {
+    if (!opts.force && loading.value) return
     loading.value = true
     try {
       const res = await leaderboardApi.get()

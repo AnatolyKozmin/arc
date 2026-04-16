@@ -17,7 +17,6 @@ def get_leaderboard(
     top_users = (
         db.query(models.User)
         .order_by(models.User.balance.desc())
-        .limit(100)
         .all()
     )
 
@@ -38,14 +37,4 @@ def get_leaderboard(
 
     current_rank = next((e.rank for e in ranked if e.user_id == current_user.id), len(ranked) + 1)
 
-    top7 = [e for e in ranked[:7]]
-    user_entry = next((e for e in ranked if e.user_id == current_user.id), None)
-
-    if user_entry and user_entry.rank <= 7:
-        entries = ranked[:8] if len(ranked) >= 8 else ranked
-    else:
-        entries = top7
-        if user_entry:
-            entries = entries + [user_entry]
-
-    return schemas.LeaderboardResponse(entries=entries, current_user_rank=current_rank)
+    return schemas.LeaderboardResponse(entries=ranked, current_user_rank=current_rank)

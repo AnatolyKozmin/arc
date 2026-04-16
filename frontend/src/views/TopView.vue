@@ -66,14 +66,25 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useLeaderboardStore } from '@/stores/leaderboard'
 import { useUserStore } from '@/stores/user'
 import AppHeader from '@/components/AppHeader.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
+const route = useRoute()
 const store = useLeaderboardStore()
 const userStore = useUserStore()
+
+/** При каждом заходе на вкладку «Топ» — свежие балансы (после начислений и т.д.) */
+watch(
+  () => route.name,
+  (name) => {
+    if (name === 'top') store.fetch({ force: true })
+  },
+  { immediate: true },
+)
 
 function getInitials(entry) {
   return ((entry.first_name?.[0] ?? '') + (entry.last_name?.[0] ?? '')).toUpperCase() || 'TG'
@@ -85,7 +96,6 @@ function formatScore(n) {
   return n.toLocaleString('ru')
 }
 
-onMounted(() => store.fetch())
 </script>
 
 <style scoped>

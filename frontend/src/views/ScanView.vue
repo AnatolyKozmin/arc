@@ -81,11 +81,13 @@
 <script setup>
 import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { useLeaderboardStore } from '@/stores/leaderboard'
 import client from '@/api/client'
 import AppHeader from '@/components/AppHeader.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
 const userStore = useUserStore()
+const leaderboardStore = useLeaderboardStore()
 const scanning = ref(false)
 const adding = ref(false)
 const scannedUser = ref(null)
@@ -118,12 +120,22 @@ async function openScanner() {
   })
 }
 
+/** Убираем пробелы/переносы из QR; tg id — только цифры (иначе бэкенд искал бы по qr_token → 404). */
+function normalizeScanPayload(raw) {
+  const s = String(raw ?? '').trim()
+  if (!s) return ''
+  const compact = s.replace(/\s+/g, '')
+  if (/^\d{4,20}$/.test(compact)) return compact
+  return s
+}
+
 async function lookupToken(token) {
-  if (!token) return
+  const normalized = normalizeScanPayload(token)
+  if (!normalized) return
   scanning.value = true
   error.value = null
   try {
-    const enc = encodeURIComponent(token)
+    const enc = encodeURIComponent(normalized)
     const res = await client.get(`/users/scan/${enc}`)
     scannedUser.value = res.data
   } catch (e) {
@@ -143,6 +155,7 @@ async function quickAdd(amount) {
       reason: 'Начисление организатором (QR)',
     })
     scannedUser.value = res.data
+    leaderboardStore.fetch({ force: true })
     window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
     customAmount.value = null
   } catch (e) {

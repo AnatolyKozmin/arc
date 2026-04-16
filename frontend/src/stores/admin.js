@@ -59,6 +59,12 @@ export const useAdminStore = defineStore('admin', () => {
     return r.data
   }
 
+  /** Создать или обновить участника по telegram_id (как бот при /start). */
+  async function ensureUser(payload) {
+    const r = await http.post('/panel/users/ensure', payload)
+    return r.data
+  }
+
   // Announcements
   async function getAnnouncements() {
     const r = await http.get('/panel/announcements')
@@ -135,7 +141,7 @@ export const useAdminStore = defineStore('admin', () => {
     token, loading, error, isLoggedIn,
     login, logout,
     getStats,
-    getUsers, updateBalance,
+    getUsers, updateBalance, ensureUser,
     getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
     getProducts, createProduct, updateProduct, deleteProduct, uploadImage,
     getAchievements, createAchievement, updateAchievement, deleteAchievement, assignAchievement,

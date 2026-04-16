@@ -10,6 +10,9 @@
         placeholder="Поиск по имени или @username…"
         @input="loadUsers"
       />
+      <button type="button" class="btn-add" @click="openAddUser">
+        + Добавить по Telegram ID
+      </button>
     </div>
 
     <div v-if="loading" class="table-wrap">
@@ -78,6 +81,42 @@
         </div>
       </div>
     </div>
+
+    <!-- Добавить участника (ensure) -->
+    <div v-if="addModal" class="modal-overlay" @click.self="addModal = false">
+      <div class="modal">
+        <h2 class="modal__title">Добавить участника</h2>
+        <p class="modal__hint">
+          Нужен числовой Telegram ID (например из @userinfobot). Если человек уже есть в базе — обновим @username и имя.
+        </p>
+
+        <div class="field">
+          <label class="field__label">Telegram ID *</label>
+          <input v-model.number="addTelegramId" type="number" class="field__input" placeholder="123456789" min="1" />
+        </div>
+        <div class="field">
+          <label class="field__label">@username (необязательно)</label>
+          <input v-model="addUsername" type="text" class="field__input" placeholder="username без @" />
+        </div>
+        <div class="field">
+          <label class="field__label">Имя</label>
+          <input v-model="addFirstName" type="text" class="field__input" placeholder="Участник" />
+        </div>
+        <div class="field">
+          <label class="field__label">Фамилия</label>
+          <input v-model="addLastName" type="text" class="field__input" placeholder="—" />
+        </div>
+
+        <p v-if="addError" class="error-msg">{{ addError }}</p>
+
+        <div class="modal__actions">
+          <button class="btn-ghost" @click="addModal = false">Отмена</button>
+          <button class="btn-primary" :disabled="addSaving || !addTelegramId" @click="submitAddUser">
+            {{ addSaving ? '…' : 'Сохранить' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -94,6 +133,56 @@ const balanceAmount = ref(0)
 const balanceReason = ref('')
 const balanceError = ref('')
 const saving = ref(false)
+
+const addModal = ref(false)
+const addTelegramId = ref(null)
+const addUsername = ref('')
+const addFirstName = ref('')
+const addLastName = ref('')
+const addError = ref('')
+const addSaving = ref(false)
+
+function openAddUser() {
+  addModal.value = true
+  addTelegramId.value = null
+  addUsername.value = ''
+  addFirstName.value = ''
+  addLastName.value = ''
+  addError.value = ''
+}
+
+function normalizeUsername(raw) {
+  const s = (raw || '').trim()
+  if (!s) return null
+  return s.replace(/^@/, '')
+}
+
+async function submitAddUser() {
+  if (!addTelegramId.value || addTelegramId.value < 1) {
+    addError.value = 'Укажите корректный Telegram ID'
+    return
+  }
+  addSaving.value = true
+  addError.value = ''
+  try {
+    await store.ensureUser({
+      telegram_id: addTelegramId.value,
+      username: normalizeUsername(addUsername.value),
+      first_name: addFirstName.value.trim() || 'Участник',
+      last_name: addLastName.value.trim() || null,
+    })
+    addModal.value = false
+    search.value = ''
+    await loadUsers()
+  } catch (e) {
+    const d = e.response?.data?.detail
+    addError.value = Array.isArray(d)
+      ? d.map((x) => x.msg || x).join('; ')
+      : (typeof d === 'string' ? d : 'Ошибка сохранения')
+  } finally {
+    addSaving.value = false
+  }
+}
 
 async function loadUsers() {
   loading.value = true
@@ -130,9 +219,17 @@ onMounted(loadUsers)
 
 <style scoped>
 .page-title { font-size: 24px; font-weight: 700; color: #000; margin-bottom: 20px; letter-spacing: -0.4px; }
-.toolbar { margin-bottom: 16px; }
+.toolbar {
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
 .search {
-  width: 100%; max-width: 360px;
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
   border: 1.5px solid #e0e0e0; border-radius: 10px;
   padding: 10px 14px; font-size: 14px; outline: none;
   transition: border-color 0.15s;
@@ -157,11 +254,26 @@ onMounted(loadUsers)
 .btn-sm { background: #f0f0f0; color: #333; border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .btn-sm:hover { background: rgba(129,39,224,0.1); color: #8127E0; }
 
+.btn-add {
+  background: #8127E0;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-add:hover { filter: brightness(1.05); }
+.btn-add:active { transform: scale(0.98); }
+
 /* Modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal { background: #fff; border-radius: 16px; padding: 28px; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 16px; }
 .modal__title { font-size: 18px; font-weight: 700; }
 .modal__user { font-size: 14px; color: #666; margin-top: -8px; }
+.modal__hint { font-size: 13px; color: #666; line-height: 1.45; margin: -8px 0 4px; }
 .modal__actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field__label { font-size: 13px; font-weight: 600; color: #444; }

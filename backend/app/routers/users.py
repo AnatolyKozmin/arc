@@ -67,7 +67,12 @@ def scan_user_qr(
     if operator.role not in ("organizer", "admin"):
         raise HTTPException(status_code=403, detail="Not enough permissions")
 
+    identifier = (identifier or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
     user = None
+    # Только ASCII-цифры (после strip), иначе сканер мог дать пробелы/мусор — не попадали в ветку tg id
     if identifier.isdigit():
         tid = int(identifier)
         user = db.query(models.User).filter(models.User.telegram_id == tid).first()
