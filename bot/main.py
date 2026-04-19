@@ -230,8 +230,9 @@ TOURN_GAME_TITLE = {
     "clash_royale": "Clash Royale",
 }
 
-# Тексты кнопок — выбор игры (reply)
+# Тексты кнопок (reply)
 BTN_MINI = "🎮 Аркадиум"
+BTN_REG_PROJECT = "📝 Регистрация на проект"
 BTN_BS = "🟢 Brawl Stars"
 BTN_CR = "👑 Clash Royale"
 BTN_TOURN_MENU = "🏆 Меню турниров"
@@ -250,6 +251,7 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BTN_MINI)],
+            [KeyboardButton(text=BTN_REG_PROJECT)],
         ],
         resize_keyboard=True,
     )
@@ -261,6 +263,7 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="👥 Пользователи")],
             [KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="💰 Начислить монеты")],
             [KeyboardButton(text="🏆 Турниры: список")],
+            [KeyboardButton(text=BTN_REG_PROJECT)],
             [KeyboardButton(text="🎮 Открыть мини-апп")],
         ],
         resize_keyboard=True,
@@ -328,6 +331,31 @@ TAG_HELP_TEXT = (
     "<b>Telegram ID</b> и <b>@username</b> мы возьмём из Telegram сами; "
     "в сообщении нужен только игровой ник."
 )
+
+# Турниры BS/CR: запись закрыта (у части пользователей старая клавиатура в кэше)
+TOURNAMENT_ENDED_TEXT = (
+    "🏆 <b>Brawl Stars и Clash Royale</b>\n\n"
+    "Запись на этот ивент <b>закрыта</b> — мероприятие уже прошло.\n\n"
+    "Новости и активности смотри в мини-приложении <b>Аркадиум</b>."
+)
+
+
+async def _reply_tournament_ended(msg: Message) -> None:
+    """Заглушка: турниры BS/CR больше не принимают запись (старые кнопки в кэше)."""
+    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else main_menu_kb()
+    await msg.answer(TOURNAMENT_ENDED_TEXT, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+
+async def _reply_tournament_ended_callback(query: CallbackQuery) -> None:
+    """То же для inline-кнопок старого «Меню турниров»."""
+    uid = query.from_user.id if query.from_user else 0
+    kb = admin_menu_kb() if await is_admin(uid) else main_menu_kb()
+    if query.message:
+        await query.message.answer(
+            TOURNAMENT_ENDED_TEXT,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb,
+        )
 
 
 # ── FSM States ───────────────────────────────────────────────────────────────
@@ -410,7 +438,9 @@ async def cmd_start(msg: Message):
         await msg.answer(
             "📝 <b>Регистрация на проект</b>\n\n"
             "Заполни анкету: имя, фамилию, вуз, курс и группу — "
-            "так мы учтём тебя в программе мероприятия. Нажми кнопку ниже 👇",
+            "так мы учтём тебя в программе мероприятия.\n\n"
+            "Можно нажать кнопку <b>ниже</b> или в любой момент — "
+            f"<b>{html.escape(BTN_REG_PROJECT)}</b> на клавиатуре под полем ввода.",
             parse_mode=ParseMode.HTML,
             reply_markup=registration_invite_kb(),
         )
@@ -905,24 +935,8 @@ async def open_mini_app(msg: Message, state: FSMContext):
     await msg.answer("Открывай:", reply_markup=mini_app_kb())
 
 
-# ── Tournament registration (Brawl Stars / Clash Royale) — кнопки, без команд ─
-
-
-async def tournament_begin_game(message: Message, state: FSMContext, game: str) -> None:
-    await state.clear()
-    await state.set_state(TournamentState.waiting_tag)
-    await state.update_data(game=game, pending_game_username=None)
-    title = TOURN_GAME_TITLE[game]
-    await message.answer(
-        f"🎮 <b>{title}</b>\n\n"
-        "Ниже — <b>«Отмена»</b> и <b>«Подсказка по нику»</b>.\n\n"
-        "Пришли <b>одним сообщением</b> свой <b>ник в игре</b> (username из профиля игры), "
-        "как показано у тебя в Brawl Stars / Clash Royale.\n\n"
-        "<b>Telegram ID</b> и <b>@username</b> подставятся автоматически.\n\n"
-        "<i>Один раз открой «Аркадиум» в мини-приложении — иначе запись не сохранится.</i>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=tournament_flow_reply_kb(),
-    )
+# ── Tournament registration (Brawl Stars / Clash Royale) — только заглушка ────
+# У части пользователей в кэше остались старые кнопки; запись на ивент закрыта.
 
 
 @router.message(F.text == BTN_BS)
@@ -932,7 +946,8 @@ async def tournament_reply_bs(msg: Message, state: FSMContext):
             "⏳ Сначала завершите регистрацию на проект или нажми /cancel.",
             parse_mode=ParseMode.HTML,
         )
-    await tournament_begin_game(msg, state, "brawl_stars")
+    await state.clear()
+    await _reply_tournament_ended(msg)
 
 
 @router.message(F.text == BTN_CR)
@@ -942,7 +957,8 @@ async def tournament_reply_cr(msg: Message, state: FSMContext):
             "⏳ Сначала завершите регистрацию на проект или нажми /cancel.",
             parse_mode=ParseMode.HTML,
         )
-    await tournament_begin_game(msg, state, "clash_royale")
+    await state.clear()
+    await _reply_tournament_ended(msg)
 
 
 @router.message(F.text == BTN_TOURN_MENU)
@@ -953,43 +969,28 @@ async def tournament_open_menu(msg: Message, state: FSMContext):
             parse_mode=ParseMode.HTML,
         )
     await state.clear()
-    await msg.answer(
-        "🏆 <b>Турниры Supercell</b>\n\n"
-        "Выбери игру кнопкой ниже — дальше кнопки + одно сообщение с ником в игре.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=tournament_hub_inline_kb(),
-    )
+    await _reply_tournament_ended(msg)
 
 
 @router.message(F.text == BTN_TAG_HELP)
 async def tournament_help_static(msg: Message, state: FSMContext):
-    st = await state.get_state()
-    if st in ("TournamentState:waiting_tag", "TournamentState:confirming"):
-        return
-    await msg.answer(
-        TAG_HELP_TEXT,
-        parse_mode=ParseMode.HTML,
-        reply_markup=tournament_hub_inline_kb(),
-    )
+    await state.clear()
+    await _reply_tournament_ended(msg)
 
 
 @router.callback_query(F.data.in_({"tourn:bs", "tourn:cr"}))
 async def tournament_cb_pick_game(query: CallbackQuery, state: FSMContext):
-    await query.answer()
+    await query.answer("Ивент уже прошёл", show_alert=True)
     if await _in_registration_project_fsm(state):
         return
-    key = (query.data or "").split(":")[-1]
-    game = TOURN_GAME_FROM_CB.get(key)
-    if not game or not query.message:
-        return
-    await tournament_begin_game(query.message, state, game)
+    await state.clear()
+    await _reply_tournament_ended_callback(query)
 
 
 @router.callback_query(F.data == "tourn:help")
 async def tournament_cb_help(query: CallbackQuery):
     await query.answer()
-    if query.message:
-        await query.message.answer(TAG_HELP_TEXT, parse_mode=ParseMode.HTML)
+    await _reply_tournament_ended_callback(query)
 
 
 @router.message(
@@ -1002,139 +1003,54 @@ async def tournament_cb_help(query: CallbackQuery):
 )
 async def tournament_flow_cancel(msg: Message, state: FSMContext):
     await state.clear()
-    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else main_menu_kb()
-    await msg.answer("❌ Запись отменена.", reply_markup=kb)
+    await _reply_tournament_ended(msg)
 
 
 @router.message(TournamentState.waiting_tag, F.text == BTN_FLOW_HINT)
 @router.message(TournamentState.confirming, F.text == BTN_FLOW_HINT)
 async def tournament_flow_hint(msg: Message, state: FSMContext):
-    await msg.answer(TAG_HELP_TEXT, parse_mode=ParseMode.HTML)
+    await state.clear()
+    await _reply_tournament_ended(msg)
 
 
 @router.message(TournamentState.waiting_tag, TextIsNotCommand())
 async def tournament_got_game_nick(msg: Message, state: FSMContext):
-    if not msg.text:
-        return await msg.answer("Пришли ник в игре текстом (от 2 символов).", parse_mode=ParseMode.HTML)
-    raw = msg.text.strip()
-    if len(raw) < 2:
-        return await msg.answer("Слишком коротко — нужен ник минимум из 2 символов.")
-    data = await state.get_data()
-    game = data.get("game")
-    if not game:
-        await state.clear()
-        return await msg.answer(
-            "Сессия сброшена. Нажми <b>🟢 Brawl Stars</b> или <b>👑 Clash Royale</b>.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=main_menu_kb(),
-        )
-
-    await state.update_data(pending_game_username=raw)
-    await state.set_state(TournamentState.confirming)
-    title = TOURN_GAME_TITLE.get(game, game)
-    safe = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    tid = msg.from_user.id
-    tun = msg.from_user.username
-    if tun:
-        tun_disp = f"@{tun}" if not tun.startswith("@") else tun
-    else:
-        tun_disp = "<i>нет username в Telegram</i>"
-    await msg.answer(
-        "📋 <b>Проверь данные</b>\n\n"
-        f"Telegram ID: <code>{tid}</code>\n"
-        f"Telegram: {tun_disp}\n"
-        f"Игра: <b>{title}</b>\n"
-        f"Ник в игре: <code>{safe}</code>\n\n"
-        "Нажми кнопку под этим сообщением:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=tournament_confirm_inline_kb(),
-    )
+    """Старая сессия записи на турнир — ивент закрыт, сбрасываем FSM."""
+    await state.clear()
+    await _reply_tournament_ended(msg)
 
 
 @router.callback_query(F.data == "tourn:retry", StateFilter(TournamentState.confirming))
 async def tournament_cb_retry(query: CallbackQuery, state: FSMContext):
-    await query.answer("Можно ввести ник снова")
-    await state.set_state(TournamentState.waiting_tag)
-    await state.update_data(pending_game_username=None)
-    if query.message:
-        await query.message.answer(
-            "Пришли ник в игре сообщением ещё раз.",
-            reply_markup=tournament_flow_reply_kb(),
-        )
+    await query.answer("Ивент уже прошёл", show_alert=True)
+    await state.clear()
+    await _reply_tournament_ended_callback(query)
 
 
 @router.callback_query(F.data == "tourn:save", StateFilter(TournamentState.confirming))
 async def tournament_cb_save(query: CallbackQuery, state: FSMContext):
-    await query.answer()
-    data = await state.get_data()
-    game = data.get("game")
-    raw = data.get("pending_game_username")
-    if not game or not raw:
-        await state.clear()
-        if query.message:
-            await query.message.answer(
-                "Сессия устарела. Выбери игру кнопкой на клавиатуре.",
-                reply_markup=main_menu_kb(),
-            )
-        return
-
-    tg_id = query.from_user.id
-    tg_username = query.from_user.username
-    try:
-        await api_post(
-            "/panel/tournaments/register",
-            {
-                "telegram_id": tg_id,
-                "telegram_username": tg_username,
-                "game": game,
-                "game_username": raw,
-            },
-        )
-    except httpx.HTTPStatusError as e:
-        err = str(e)
-        try:
-            err = e.response.json().get("detail", err)
-        except Exception:
-            pass
-        if query.message:
-            await query.message.answer(f"❌ {err}")
-        return
-    except Exception as e:
-        if query.message:
-            await query.message.answer(f"❌ Ошибка: {e}")
-        return
-
+    await query.answer("Ивент уже прошёл", show_alert=True)
     await state.clear()
-    title = TOURN_GAME_TITLE.get(game, game)
-    kb = admin_menu_kb() if await is_admin(tg_id) else main_menu_kb()
-    if query.message:
-        await query.message.answer(
-            f"✅ Записали на <b>{title}</b>! TG id, @username и ник в игре сохранены.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb,
-        )
+    await _reply_tournament_ended_callback(query)
 
 
 @router.message(TournamentState.confirming, TextIsNotCommand())
-async def tournament_confirming_extra_text(msg: Message):
-    await msg.answer(
-        "Сначала нажми кнопки <b>«Да, записать»</b> или <b>«Ввести заново»</b> под предыдущим сообщением.",
-        parse_mode=ParseMode.HTML,
-    )
+async def tournament_confirming_extra_text(msg: Message, state: FSMContext):
+    """Любой текст вместо кнопок подтверждения — закрываем сессию и показываем заглушку."""
+    await state.clear()
+    await _reply_tournament_ended(msg)
 
 
-# ── Регистрация на проект (кнопка из /rass_registration) ─────────────────────
+# ── Регистрация на проект (рассылка /start / reply-кнопка) ────────────────────
 
-@router.callback_query(F.data == REGPROJ_CALLBACK)
-async def regproj_cb_start(query: CallbackQuery, state: FSMContext):
-    await query.answer()
-    if not query.from_user or not query.message:
-        return
+
+async def _begin_registration_project_flow(message: Message, state: FSMContext, from_user) -> None:
+    """Старт анкеты: имя → … → подтверждение (общий код для inline и reply-кнопки)."""
     await state.clear()
     await state.set_state(RegistrationProjectState.first_name)
-    tun = query.from_user.username
+    tun = from_user.username
     un_disp = f"@{tun}" if tun else "(нет публичного @username)"
-    await query.message.answer(
+    await message.answer(
         "📝 <b>Регистрация на проект «Аркадиум»</b>\n\n"
         f"Твой Telegram: {html.escape(un_disp)}\n\n"
         "Введи <b>имя</b>.\n"
@@ -1142,6 +1058,45 @@ async def regproj_cb_start(query: CallbackQuery, state: FSMContext):
         parse_mode=ParseMode.HTML,
         reply_markup=registration_project_reply_kb(),
     )
+
+
+@router.message(F.text == BTN_REG_PROJECT)
+async def regproj_from_menu_button(msg: Message, state: FSMContext):
+    """Постоянная клавиатура — если не было рассылки, человек всё равно может зарегистрироваться."""
+    if await _in_registration_project_fsm(state):
+        return await msg.answer(
+            "Сначала заверши анкету или нажми /cancel.",
+            parse_mode=ParseMode.HTML,
+        )
+    ensured: dict | None = None
+    try:
+        ensured = await api_post(
+            "/panel/users/ensure",
+            {
+                "telegram_id": msg.from_user.id,
+                "username": msg.from_user.username,
+                "first_name": msg.from_user.first_name or "",
+                "last_name": msg.from_user.last_name,
+            },
+        )
+    except Exception as e:
+        log.warning("ensure_user reg button: %s", e)
+        return await msg.answer("❌ Не удалось связаться с сервером. Попробуй позже.")
+
+    if ensured.get("is_registered"):
+        return await msg.answer(
+            "✅ Ты уже зарегистрирован(а) в проекте. При необходимости измени данные в мини-приложении.",
+            parse_mode=ParseMode.HTML,
+        )
+    await _begin_registration_project_flow(msg, state, msg.from_user)
+
+
+@router.callback_query(F.data == REGPROJ_CALLBACK)
+async def regproj_cb_start(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    if not query.from_user or not query.message:
+        return
+    await _begin_registration_project_flow(query.message, state, query.from_user)
 
 
 @router.message(
