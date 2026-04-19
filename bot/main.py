@@ -250,9 +250,6 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BTN_MINI)],
-            [KeyboardButton(text=BTN_BS), KeyboardButton(text=BTN_CR)],
-            [KeyboardButton(text=BTN_TOURN_MENU)],
-            [KeyboardButton(text=BTN_TAG_HELP)],
         ],
         resize_keyboard=True,
     )
@@ -263,9 +260,7 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="👥 Пользователи")],
             [KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="💰 Начислить монеты")],
-            [KeyboardButton(text=BTN_BS), KeyboardButton(text=BTN_CR)],
-            [KeyboardButton(text=BTN_TOURN_MENU), KeyboardButton(text="🏆 Турниры: список")],
-            [KeyboardButton(text=BTN_TAG_HELP)],
+            [KeyboardButton(text="🏆 Турниры: список")],
             [KeyboardButton(text="🎮 Открыть мини-апп")],
         ],
         resize_keyboard=True,
@@ -387,8 +382,7 @@ async def cmd_start(msg: Message):
     welcome = (
         f"Привет, {name}! 👋\n\n"
         "Добро пожаловать в <b>Аркадиум 2026</b> — квест на мероприятии.\n\n"
-        "Выбирай персонажа, выполняй задания, зарабатывай аркоины и попадай в топ!\n\n"
-        "🏆 Турниры Brawl Stars / Clash Royale — кнопками ниже, без команд."
+        "Выбирай персонажа, выполняй задания, зарабатывай аркоины и попадай в топ!"
     )
 
     # Сначала запись в БД (как в мини-аппе), чтобы знать is_registered
