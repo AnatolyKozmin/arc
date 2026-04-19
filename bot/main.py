@@ -1,7 +1,7 @@
 """
 Arkadium 2026 — Telegram Bot
 Турниры и меню — в основном кнопки (reply + inline).
-Служебные команды для админов: /stats, /users, /broadcast, /rass_6523, /addcoins, /cancel
+Служебные команды для админов: /stats, /users, /broadcast, /rass_6523, /rass_registration, /addcoins, /cancel
 """
 
 import asyncio
@@ -136,6 +136,18 @@ async def is_admin(user_id: int) -> bool:
     return user_id in db_admins
 
 
+async def _admin_recipient_telegram_ids() -> list[int]:
+    """ID для тестовой рассылки: .env + админы из БД."""
+    s = set(ADMIN_IDS)
+    s.update(await get_db_admins())
+    return sorted(s)
+
+
+async def _in_registration_project_fsm(state: FSMContext) -> bool:
+    s = await state.get_state()
+    return s is not None and str(s).startswith("RegistrationProjectState")
+
+
 def _telegram_error_summary(exc: BaseException) -> str:
     """Короткое описание ошибки Telegram API для отчёта."""
     msg = getattr(exc, "message", None) or str(exc) or type(exc).__name__
@@ -187,6 +199,29 @@ def mini_app_kb() -> InlineKeyboardMarkup:
             web_app=WebAppInfo(url=MINI_APP_URL),
         )
     ]])
+
+
+REGPROJ_CALLBACK = "regproj:start"
+
+
+def registration_invite_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📝 Зарегистрироваться на проект",
+                    callback_data=REGPROJ_CALLBACK,
+                ),
+            ],
+        ],
+    )
+
+
+def registration_project_reply_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BTN_FLOW_CANCEL)]],
+        resize_keyboard=True,
+    )
 
 
 TOURN_GAME_FROM_CB = {"bs": "brawl_stars", "cr": "clash_royale"}
@@ -280,6 +315,17 @@ RASS_6523_DEFAULT_TEXT = (
 )
 
 
+RASS_REGISTRATION_DEFAULT_TEXT = (
+    "Тук-тук, на связи <b>Аркаврик</b>.\n"
+    "И я с нетерпением жду нашей встречи на Ар-р-ркадиуме!\n\n"
+    "<b>23 апреля</b> с <b>17:00 до 21:00</b>\n"
+    "<b>4-й Вешняковский проезд, 4</b>\n\n"
+    "Живые интерактивы, турниры, невероятная атмосфера, а также призы для самых активных.\n\n"
+    "<b>Регистрируйся, чтобы не пропустить!</b>\n\n"
+    "До встречи на проекте, твой динозавр 💜"
+)
+
+
 TAG_HELP_TEXT = (
     "📖 <b>Ник в игре</b>\n\n"
     "После выбора турнира пришли <b>одним сообщением</b> свой "
@@ -314,6 +360,25 @@ class TournamentState(StatesGroup):
     confirming = State()
 
 
+class RassRegistrationState(StatesGroup):
+    """Рассылка приглашения с кнопкой регистрации на проект (анкета в боте)."""
+
+    waiting_text = State()
+    waiting_scope = State()  # тест / все
+    waiting_confirm = State()
+
+
+class RegistrationProjectState(StatesGroup):
+    """Анкета после нажатия «Зарегистрироваться на проект»."""
+
+    first_name = State()
+    last_name = State()
+    university = State()
+    course = State()
+    group = State()
+    confirming = State()
+
+
 # ── /start ───────────────────────────────────────────────────────────────────
 
 @router.message(CommandStart())
@@ -325,14 +390,11 @@ async def cmd_start(msg: Message):
         "Выбирай персонажа, выполняй задания, зарабатывай аркоины и попадай в топ!\n\n"
         "🏆 Турниры Brawl Stars / Clash Royale — кнопками ниже, без команд."
     )
-    if await is_admin(msg.from_user.id):
-        await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
-    else:
-        await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=main_menu_kb())
 
-    # Запись в БД всех, кто нажал /start (как в мини-аппе)
+    # Сначала запись в БД (как в мини-аппе), чтобы знать is_registered
+    ensured: dict | None = None
     try:
-        await api_post(
+        ensured = await api_post(
             "/panel/users/ensure",
             {
                 "telegram_id": msg.from_user.id,
@@ -343,6 +405,21 @@ async def cmd_start(msg: Message):
         )
     except Exception as e:
         log.warning("ensure_user /start: %s", e)
+
+    if await is_admin(msg.from_user.id):
+        await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=admin_menu_kb())
+    else:
+        await msg.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=main_menu_kb())
+
+    # Новички без регистрации в приложении — предлагаем ту же анкету, что и в рассылке
+    if ensured and not ensured.get("is_registered"):
+        await msg.answer(
+            "📝 <b>Регистрация на проект</b>\n\n"
+            "Заполни анкету: имя, фамилию, вуз, курс и группу — "
+            "так мы учтём тебя в программе мероприятия. Нажми кнопку ниже 👇",
+            parse_mode=ParseMode.HTML,
+            reply_markup=registration_invite_kb(),
+        )
 
 
 # ── Admin: /admin ─────────────────────────────────────────────────────────────
@@ -566,6 +643,147 @@ async def rass_6523_confirm(msg: Message, state: FSMContext, bot: Bot):
     await msg.answer("⌨️ Меню админа:", reply_markup=admin_menu_kb())
 
 
+# ── /rass_registration — рассылка + кнопка анкеты регистрации на проект ───────
+
+@router.message(Command("rass_registration"))
+async def cmd_rass_registration_start(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        return
+    await state.set_state(RassRegistrationState.waiting_text)
+    await msg.answer(
+        "✍️ <b>Рассылка с регистрацией на проект</b>\n\n"
+        "К сообщению будет добавлена кнопка «Зарегистрироваться на проект» — "
+        "после нажатия человек заполнит в боте: имя, фамилию, вуз, курс, группу "
+        "(а @username возьмём из Telegram).\n\n"
+        "Пришли текст в <b>HTML</b> или <code>/default</code> — подставлю шаблон Аркаврика.\n\n"
+        "/cancel — отмена.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+@router.message(RassRegistrationState.waiting_text, Command("cancel"))
+@router.message(RassRegistrationState.waiting_scope, Command("cancel"))
+@router.message(RassRegistrationState.waiting_confirm, Command("cancel"))
+async def rass_registration_cancel_cmd(msg: Message, state: FSMContext):
+    await state.clear()
+    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else main_menu_kb()
+    await msg.answer("❌ Отменено.", reply_markup=kb)
+
+
+@router.message(RassRegistrationState.waiting_text)
+async def rass_registration_got_text(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        await state.clear()
+        return
+    if msg.text and msg.text.strip().lower() in ("/default", "default"):
+        text = RASS_REGISTRATION_DEFAULT_TEXT
+    else:
+        text = msg.html_text or msg.text or ""
+        if not text.strip():
+            return await msg.answer("Пустой текст. Пришли HTML или <code>/default</code>.", parse_mode=ParseMode.HTML)
+    await state.update_data(mail_text=text)
+    await state.set_state(RassRegistrationState.waiting_scope)
+    await msg.answer(
+        "📬 <b>Кому отправить?</b>\n\n"
+        "• <code>тест</code> — только <b>админам</b> (ADMIN_TELEGRAM_IDS + список из веб-панели)\n"
+        "• <code>все</code> — всем из базы (кто хоть раз нажал /start)\n\n"
+        "Напиши одно слово: <b>тест</b> или <b>все</b>.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(RassRegistrationState.waiting_scope)
+async def rass_registration_got_scope(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        await state.clear()
+        return
+    if not msg.text:
+        return await msg.answer("Напиши <b>тест</b> или <b>все</b>.", parse_mode=ParseMode.HTML)
+    raw = msg.text.strip().lower()
+    if raw in ("тест", "test", "t"):
+        scope = "test"
+        scope_human = "только админы (тест)"
+    elif raw in ("все", "всё", "all", "a"):
+        scope = "all"
+        scope_human = "все из базы"
+    else:
+        return await msg.answer("Нужно слово <b>тест</b> или <b>все</b>.", parse_mode=ParseMode.HTML)
+
+    await state.update_data(scope=scope)
+    await state.set_state(RassRegistrationState.waiting_confirm)
+    data = await state.get_data()
+    text = data["mail_text"]
+    await msg.answer(
+        f"📋 <b>Предпросмотр</b> ({scope_human})\n\n{text}\n\n"
+        "➕ К сообщению будет inline-кнопка регистрации.\n\n"
+        "Отправить? <b>да / нет</b>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(RassRegistrationState.waiting_confirm)
+async def rass_registration_confirm(msg: Message, state: FSMContext, bot: Bot):
+    if not await is_admin(msg.from_user.id):
+        await state.clear()
+        return
+    if msg.text is None or msg.text.lower() not in ("да", "yes", "y", "д"):
+        await state.clear()
+        await msg.answer("❌ Отменено.", reply_markup=admin_menu_kb())
+        return
+
+    data = await state.get_data()
+    text = data["mail_text"]
+    test_only = data.get("scope") == "test"
+    await state.clear()
+
+    status_msg = await msg.answer("⏳ Рассылка…")
+
+    kb = registration_invite_kb()
+    sent = 0
+    failures: list[tuple[int, str]] = []
+
+    if test_only:
+        targets = await _admin_recipient_telegram_ids()
+        total_recipients = len(targets)
+        for tg_id in targets:
+            try:
+                await bot.send_message(tg_id, text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                sent += 1
+                await asyncio.sleep(0.05)
+            except Exception as ex:
+                failures.append((tg_id, _telegram_error_summary(ex)))
+                log.warning("rass_registration test send to %s: %s", tg_id, ex)
+        title = "Рассылка /rass_registration (тест — только админы)"
+    else:
+        try:
+            users_data = await api_get("/panel/users?limit=10000")
+            users = users_data.get("items", users_data) if isinstance(users_data, dict) else users_data
+        except Exception as e:
+            return await status_msg.edit_text(f"❌ Не удалось получить пользователей: {e}")
+        targets_list = [u for u in users if u.get("telegram_id")]
+        total_recipients = len(targets_list)
+        for u in targets_list:
+            tg_id = u["telegram_id"]
+            try:
+                await bot.send_message(tg_id, text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                sent += 1
+                await asyncio.sleep(0.05)
+            except Exception as ex:
+                failures.append((tg_id, _telegram_error_summary(ex)))
+                log.warning("rass_registration send to %s: %s", tg_id, ex)
+        title = "Рассылка /rass_registration (все из базы)"
+
+    report = _format_mailing_report(
+        title=title,
+        total_recipients=total_recipients,
+        sent=sent,
+        failures=failures,
+    )
+    await status_msg.edit_text(report, parse_mode=ParseMode.HTML)
+    await msg.answer("⌨️ Меню админа:", reply_markup=admin_menu_kb())
+
+
 # ── Add Coins ─────────────────────────────────────────────────────────────────
 
 @router.message(F.text == "💰 Начислить монеты")
@@ -639,12 +857,22 @@ async def addcoins_confirm(msg: Message, state: FSMContext):
 # ── Open Mini App ─────────────────────────────────────────────────────────────
 
 @router.message(F.text == BTN_MINI)
-async def open_mini_from_main_menu(msg: Message):
+async def open_mini_from_main_menu(msg: Message, state: FSMContext):
+    if await _in_registration_project_fsm(state):
+        return await msg.answer(
+            "⏳ Сначала завершите регистрацию на проект или нажми /cancel.",
+            parse_mode=ParseMode.HTML,
+        )
     await msg.answer("Открой мини-приложение кнопкой ниже — так Telegram передаёт данные для входа.", reply_markup=mini_app_kb())
 
 
 @router.message(F.text == "🎮 Открыть мини-апп")
-async def open_mini_app(msg: Message):
+async def open_mini_app(msg: Message, state: FSMContext):
+    if await _in_registration_project_fsm(state):
+        return await msg.answer(
+            "⏳ Сначала завершите регистрацию на проект или нажми /cancel.",
+            parse_mode=ParseMode.HTML,
+        )
     await msg.answer("Открывай:", reply_markup=mini_app_kb())
 
 
@@ -670,16 +898,31 @@ async def tournament_begin_game(message: Message, state: FSMContext, game: str) 
 
 @router.message(F.text == BTN_BS)
 async def tournament_reply_bs(msg: Message, state: FSMContext):
+    if await _in_registration_project_fsm(state):
+        return await msg.answer(
+            "⏳ Сначала завершите регистрацию на проект или нажми /cancel.",
+            parse_mode=ParseMode.HTML,
+        )
     await tournament_begin_game(msg, state, "brawl_stars")
 
 
 @router.message(F.text == BTN_CR)
 async def tournament_reply_cr(msg: Message, state: FSMContext):
+    if await _in_registration_project_fsm(state):
+        return await msg.answer(
+            "⏳ Сначала завершите регистрацию на проект или нажми /cancel.",
+            parse_mode=ParseMode.HTML,
+        )
     await tournament_begin_game(msg, state, "clash_royale")
 
 
 @router.message(F.text == BTN_TOURN_MENU)
 async def tournament_open_menu(msg: Message, state: FSMContext):
+    if await _in_registration_project_fsm(state):
+        return await msg.answer(
+            "⏳ Сначала завершите регистрацию на проект или нажми /cancel.",
+            parse_mode=ParseMode.HTML,
+        )
     await state.clear()
     await msg.answer(
         "🏆 <b>Турниры Supercell</b>\n\n"
@@ -704,6 +947,8 @@ async def tournament_help_static(msg: Message, state: FSMContext):
 @router.callback_query(F.data.in_({"tourn:bs", "tourn:cr"}))
 async def tournament_cb_pick_game(query: CallbackQuery, state: FSMContext):
     await query.answer()
+    if await _in_registration_project_fsm(state):
+        return
     key = (query.data or "").split(":")[-1]
     game = TOURN_GAME_FROM_CB.get(key)
     if not game or not query.message:
@@ -846,6 +1091,181 @@ async def tournament_confirming_extra_text(msg: Message):
     await msg.answer(
         "Сначала нажми кнопки <b>«Да, записать»</b> или <b>«Ввести заново»</b> под предыдущим сообщением.",
         parse_mode=ParseMode.HTML,
+    )
+
+
+# ── Регистрация на проект (кнопка из /rass_registration) ─────────────────────
+
+@router.callback_query(F.data == REGPROJ_CALLBACK)
+async def regproj_cb_start(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    if not query.from_user or not query.message:
+        return
+    await state.clear()
+    await state.set_state(RegistrationProjectState.first_name)
+    tun = query.from_user.username
+    un_disp = f"@{tun}" if tun else "(нет публичного @username)"
+    await query.message.answer(
+        "📝 <b>Регистрация на проект «Аркадиум»</b>\n\n"
+        f"Твой Telegram: {html.escape(un_disp)}\n\n"
+        "Введи <b>имя</b>.\n"
+        "/cancel — выйти из анкеты.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=registration_project_reply_kb(),
+    )
+
+
+@router.message(
+    StateFilter(
+        RegistrationProjectState.first_name,
+        RegistrationProjectState.last_name,
+        RegistrationProjectState.university,
+        RegistrationProjectState.course,
+        RegistrationProjectState.group,
+    ),
+    F.text == BTN_FLOW_CANCEL,
+)
+async def regproj_flow_cancel_btn(msg: Message, state: FSMContext):
+    await state.clear()
+    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else main_menu_kb()
+    await msg.answer("❌ Регистрация отменена.", reply_markup=kb)
+
+
+@router.message(RegistrationProjectState.first_name, TextIsNotCommand())
+async def regproj_got_first_name(msg: Message, state: FSMContext):
+    raw = (msg.text or "").strip()
+    if len(raw) < 1:
+        return await msg.answer("Введи имя текстом.")
+    await state.update_data(first_name=raw)
+    await state.set_state(RegistrationProjectState.last_name)
+    await msg.answer(
+        "Фамилия:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=registration_project_reply_kb(),
+    )
+
+
+@router.message(RegistrationProjectState.last_name, TextIsNotCommand())
+async def regproj_got_last_name(msg: Message, state: FSMContext):
+    raw = (msg.text or "").strip()
+    if len(raw) < 1:
+        return await msg.answer("Введи фамилию (можно через дефис, если двойная).")
+    await state.update_data(last_name=raw)
+    await state.set_state(RegistrationProjectState.university)
+    await msg.answer(
+        "ВУЗ (полное или краткое название):",
+        reply_markup=registration_project_reply_kb(),
+    )
+
+
+@router.message(RegistrationProjectState.university, TextIsNotCommand())
+async def regproj_got_university(msg: Message, state: FSMContext):
+    raw = (msg.text or "").strip()
+    if len(raw) < 2:
+        return await msg.answer("Слишком коротко — укажи название вуза.")
+    await state.update_data(university=raw)
+    await state.set_state(RegistrationProjectState.course)
+    await msg.answer(
+        "Курс (число от 1 до 12):",
+        reply_markup=registration_project_reply_kb(),
+    )
+
+
+@router.message(RegistrationProjectState.course, TextIsNotCommand())
+async def regproj_got_course(msg: Message, state: FSMContext):
+    try:
+        c = int((msg.text or "").strip())
+    except ValueError:
+        return await msg.answer("Нужно целое число, например <code>2</code>.", parse_mode=ParseMode.HTML)
+    if c < 1 or c > 12:
+        return await msg.answer("Курс от 1 до 12.")
+    await state.update_data(course=c)
+    await state.set_state(RegistrationProjectState.group)
+    await msg.answer(
+        "Группа (например <code>БИ-101</code>):",
+        parse_mode=ParseMode.HTML,
+        reply_markup=registration_project_reply_kb(),
+    )
+
+
+@router.message(RegistrationProjectState.group, TextIsNotCommand())
+async def regproj_got_group(msg: Message, state: FSMContext):
+    raw = (msg.text or "").strip()
+    if len(raw) < 1 or len(raw) > 50:
+        return await msg.answer("Группа: от 1 до 50 символов.")
+    await state.update_data(group=raw)
+    data = await state.get_data()
+    fn = data["first_name"]
+    ln = data["last_name"]
+    uni = html.escape(data["university"])
+    gr = html.escape(data["group"])
+    tun = msg.from_user.username
+    tun_disp = f"@{tun}" if tun else "—"
+    await state.set_state(RegistrationProjectState.confirming)
+    await msg.answer(
+        "📋 <b>Проверь данные</b>\n\n"
+        f"Telegram: {html.escape(tun_disp)}\n"
+        f"Имя: <b>{html.escape(fn)}</b>\n"
+        f"Фамилия: <b>{html.escape(ln)}</b>\n"
+        f"ВУЗ: {uni}\n"
+        f"Курс: <b>{data['course']}</b>\n"
+        f"Группа: <code>{gr}</code>\n\n"
+        "Отправить в систему? <b>да / нет</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+@router.message(RegistrationProjectState.confirming)
+async def regproj_confirm_save(msg: Message, state: FSMContext):
+    if not msg.text:
+        return await msg.answer("Ответь <b>да</b> или <b>нет</b>.", parse_mode=ParseMode.HTML)
+    t = msg.text.strip().lower()
+    if t in ("нет", "no", "n"):
+        await state.clear()
+        kb = admin_menu_kb() if await is_admin(msg.from_user.id) else main_menu_kb()
+        return await msg.answer(
+            "Ок. Можно снова нажать кнопку в сообщении с рассылкой.",
+            reply_markup=kb,
+        )
+    if t not in ("да", "yes", "y", "д"):
+        return await msg.answer("Напиши <b>да</b> или <b>нет</b>.", parse_mode=ParseMode.HTML)
+
+    data = await state.get_data()
+    await state.clear()
+    tg_id = msg.from_user.id
+    tg_username = msg.from_user.username
+    full_name = f"{data['first_name']} {data['last_name']}".strip()
+    payload = {
+        "telegram_id": tg_id,
+        "username": tg_username,
+        "first_name": data["first_name"],
+        "last_name": data["last_name"],
+        "full_name": full_name,
+        "university": data["university"],
+        "course": data["course"],
+        "group": data["group"],
+    }
+    kb = admin_menu_kb() if await is_admin(tg_id) else main_menu_kb()
+    try:
+        await api_post("/panel/users/register-by-telegram", payload)
+    except httpx.HTTPStatusError as e:
+        err = str(e)
+        try:
+            err = e.response.json().get("detail", err)
+        except Exception:
+            pass
+        return await msg.answer(
+            f"❌ {err}\n\nЕсли «не найден» — сначала нажми /start у бота.",
+            reply_markup=kb,
+        )
+    except Exception as e:
+        return await msg.answer(f"❌ Ошибка: {e}", reply_markup=kb)
+
+    await msg.answer(
+        "✅ <b>Регистрация сохранена!</b> Можно открыть мини-приложение «Аркадиум» из меню.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb,
     )
 
 

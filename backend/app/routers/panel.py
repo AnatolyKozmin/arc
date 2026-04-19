@@ -9,7 +9,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -299,6 +299,45 @@ def update_balance(
     user.balance = max(0, user.balance + data.amount)
     tx = models.Transaction(user_id=user.id, amount=data.amount, reason=data.reason, category="admin")
     db.add(tx)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+class PanelRegisterByTelegramBody(BaseModel):
+    """Регистрация на проект из бота — те же поля, что PUT /users/me/register + имя из анкеты."""
+
+    telegram_id: int
+    username: Optional[str] = None
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: Optional[str] = Field(None, max_length=100)
+    full_name: str = Field(..., min_length=2, max_length=200)
+    university: str = Field(..., min_length=1, max_length=200)
+    course: int = Field(..., ge=1, le=12)
+    group: str = Field(..., min_length=1, max_length=50)
+
+
+@router.post("/users/register-by-telegram", response_model=PanelUserOut)
+def register_profile_by_telegram(
+    data: PanelRegisterByTelegramBody,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="Пользователь не найден. Нажми /start у бота.",
+        )
+    user.first_name = data.first_name.strip()
+    user.last_name = (data.last_name or "").strip() or None
+    if data.username is not None:
+        user.username = data.username
+    user.full_name = data.full_name.strip()
+    user.university = data.university.strip()
+    user.course = data.course
+    user.group = data.group.strip()
+    user.is_registered = True
     db.commit()
     db.refresh(user)
     return user
