@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -80,6 +81,62 @@ def get_stats(_: None = Depends(require_panel), db: Session = Depends(get_db)):
         total_products=db.query(models.Product).filter(models.Product.is_active == True).count(),
         total_announcements=db.query(models.Announcement).filter(models.Announcement.is_active == True).count(),
         total_achievements=db.query(models.Achievement).filter(models.Achievement.is_active == True).count(),
+    )
+
+
+class RegistrationStatRow(BaseModel):
+    label: str
+    count: int
+
+
+class RegistrationBreakdown(BaseModel):
+    """Разбивка по полям анкеты только для is_registered = true."""
+
+    registered_total: int
+    by_university: List[RegistrationStatRow]
+    by_course: List[RegistrationStatRow]
+
+
+@router.get("/stats/registrations", response_model=RegistrationBreakdown)
+def get_registration_breakdown(
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    reg_filter = models.User.is_registered == True
+    registered_total = db.query(models.User).filter(reg_filter).count()
+
+    uni_rows = (
+        db.query(models.User.university, func.count(models.User.id))
+        .filter(reg_filter)
+        .group_by(models.User.university)
+        .order_by(func.count(models.User.id).desc())
+        .all()
+    )
+    by_university = [
+        RegistrationStatRow(label=(u or "— не указан"), count=int(c))
+        for u, c in uni_rows
+    ]
+
+    course_rows = (
+        db.query(models.User.course, func.count(models.User.id))
+        .filter(reg_filter)
+        .group_by(models.User.course)
+        .all()
+    )
+    course_rows.sort(key=lambda r: (r[0] is None, r[0] if r[0] is not None else 0))
+
+    by_course: List[RegistrationStatRow] = []
+    for course_val, cnt in course_rows:
+        if course_val is None:
+            label = "— курс не указан"
+        else:
+            label = f"{course_val} курс"
+        by_course.append(RegistrationStatRow(label=label, count=int(cnt)))
+
+    return RegistrationBreakdown(
+        registered_total=registered_total,
+        by_university=by_university,
+        by_course=by_course,
     )
 
 

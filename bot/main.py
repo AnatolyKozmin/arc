@@ -440,17 +440,52 @@ async def cmd_stats(msg: Message):
         return
     try:
         data = await api_get("/panel/stats")
-        text = (
-            "📊 <b>Статистика Аркадиум</b>\n\n"
-            f"👤 Всего пользователей: <b>{data['total_users']}</b>\n"
-            f"✅ Зарегистрировано: <b>{data['registered_users']}</b>\n"
-            f"🛍 Товаров в магазине: <b>{data['total_products']}</b>\n"
-            f"📢 Объявлений: <b>{data['total_announcements']}</b>\n"
-            f"🏅 Достижений: <b>{data['total_achievements']}</b>"
-        )
-        await msg.answer(text, parse_mode=ParseMode.HTML)
+        reg = await api_get("/panel/stats/registrations")
     except Exception as e:
-        await msg.answer(f"❌ Ошибка: {e}")
+        return await msg.answer(f"❌ Ошибка: {e}")
+
+    text = (
+        "📊 <b>Статистика Аркадиум</b>\n\n"
+        f"👤 Всего пользователей: <b>{data['total_users']}</b>\n"
+        f"✅ Зарегистрировано (анкета): <b>{data['registered_users']}</b>\n"
+        f"🛍 Товаров в магазине: <b>{data['total_products']}</b>\n"
+        f"📢 Объявлений: <b>{data['total_announcements']}</b>\n"
+        f"🏅 Достижений: <b>{data['total_achievements']}</b>"
+    )
+    await msg.answer(text, parse_mode=ParseMode.HTML)
+
+    # Детализация по зарегистрированным (вуз / курс)
+    total_r = reg.get("registered_total", 0)
+    if total_r == 0:
+        await msg.answer(
+            "📋 <b>Зарегистрированные:</b> пока <b>0</b> — разбивки по вузам и курсам нет.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    lines = [
+        "📋 <b>Зарегистрированные участники</b>",
+        f"Всего в анкете: <b>{total_r}</b> чел.",
+        "",
+        "<b>По вузам</b> (по убыванию числа человек):",
+    ]
+    uni = reg.get("by_university") or []
+    max_uni = 40
+    for row in uni[:max_uni]:
+        lab = html.escape(str(row.get("label", "—")))
+        lines.append(f"• {lab} — <b>{row.get('count', 0)}</b>")
+    if len(uni) > max_uni:
+        lines.append(f"… всего разных вузов в базе: <b>{len(uni)}</b>")
+
+    lines.extend(["", "<b>По курсу:</b>"])
+    for row in reg.get("by_course") or []:
+        lab = html.escape(str(row.get("label", "—")))
+        lines.append(f"• {lab} — <b>{row.get('count', 0)}</b>")
+
+    text2 = "\n".join(lines)
+    if len(text2) > 4000:
+        text2 = text2[:3990] + "…"
+    await msg.answer(text2, parse_mode=ParseMode.HTML)
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
