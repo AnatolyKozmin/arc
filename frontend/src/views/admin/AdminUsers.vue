@@ -13,7 +13,19 @@
       <button type="button" class="btn-add" @click="openAddUser">
         + Добавить по @username
       </button>
+      <button
+        type="button"
+        class="btn-export"
+        :disabled="exportLoading"
+        @click="downloadExport"
+      >
+        {{ exportLoading ? 'Готовим файл…' : '⬇ Excel: регистрация на мероприятие' }}
+      </button>
     </div>
+    <p v-if="exportError" class="export-error">{{ exportError }}</p>
+    <p class="toolbar-hint">
+      Выгрузка Excel — только участники с заполненной <b>регистрацией на мероприятие</b> (как в боте / мини-аппе).
+    </p>
 
     <div v-if="loading" class="table-wrap">
       <div v-for="i in 6" :key="i" class="skeleton-row" />
@@ -138,6 +150,8 @@ const addModal = ref(false)
 const addPublicUsername = ref('')
 const addError = ref('')
 const addSaving = ref(false)
+const exportLoading = ref(false)
+const exportError = ref('')
 
 function openAddUser() {
   addModal.value = true
@@ -177,6 +191,30 @@ async function loadUsers() {
   loading.value = true
   try { users.value = await store.getUsers(search.value) }
   finally { loading.value = false }
+}
+
+async function downloadExport() {
+  exportError.value = ''
+  exportLoading.value = true
+  try {
+    await store.exportUsersXlsx()
+  } catch (e) {
+    let msg = 'Не удалось скачать файл'
+    if (e.response?.data instanceof Blob) {
+      try {
+        const t = await e.response.data.text()
+        const j = JSON.parse(t)
+        if (j.detail) msg = typeof j.detail === 'string' ? j.detail : msg
+      } catch (_) {
+        msg = e.message || msg
+      }
+    } else {
+      msg = e.response?.data?.detail || e.message || msg
+    }
+    exportError.value = msg
+  } finally {
+    exportLoading.value = false
+  }
 }
 
 function openBalance(user) {
@@ -256,6 +294,23 @@ onMounted(loadUsers)
 }
 .btn-add:hover { filter: brightness(1.05); }
 .btn-add:active { transform: scale(0.98); }
+
+.btn-export {
+  background: #fff;
+  color: #333;
+  border: 1.5px solid #8127E0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-export:hover:not(:disabled) { background: rgba(129, 39, 224, 0.06); }
+.btn-export:disabled { opacity: 0.65; cursor: default; }
+
+.export-error { font-size: 13px; color: #dc3545; margin: -8px 0 12px; }
+.toolbar-hint { font-size: 13px; color: #666; margin: -4px 0 14px; max-width: 640px; line-height: 1.4; }
 
 /* Modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; }

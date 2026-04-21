@@ -1,12 +1,16 @@
 """Admin web panel router — password-based login, full CRUD."""
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
+from openpyxl import Workbook
+from openpyxl.styles import Font
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
@@ -183,6 +187,74 @@ def list_users(
             | models.User.full_name.ilike(like)
         )
     return q.order_by(models.User.balance.desc()).offset(skip).limit(limit).all()
+
+
+@router.get("/users/export")
+def export_users_xlsx(
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    """Выгрузка в .xlsx только тех, кто прошёл регистрацию на мероприятие (анкета в боте / мини-аппе, is_registered)."""
+    users = (
+        db.query(models.User)
+        .filter(models.User.is_registered == True)
+        .order_by(models.User.id.asc())
+        .all()
+    )
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Регистрация на мероприятие"
+    headers = [
+        "ID",
+        "Telegram ID",
+        "Username",
+        "Имя (TG)",
+        "Фамилия (TG)",
+        "ФИО (анкета)",
+        "ВУЗ",
+        "Курс",
+        "Группа",
+        "Аркоины",
+        "Дата создания записи в боте",
+    ]
+    ws.append(headers)
+    for c in ws[1]:
+        c.font = Font(bold=True)
+
+    for u in users:
+        created = ""
+        if u.created_at:
+            if hasattr(u.created_at, "strftime"):
+                created = u.created_at.strftime("%Y-%m-%d %H:%M")
+            else:
+                created = str(u.created_at)
+        ws.append(
+            [
+                u.id,
+                u.telegram_id,
+                u.username or "",
+                u.first_name,
+                u.last_name or "",
+                u.full_name or "",
+                u.university or "",
+                u.course if u.course is not None else "",
+                u.group or "",
+                u.balance,
+                created,
+            ]
+        )
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"arkadium-meropriyatie-zaregistrirovani-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.xlsx"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+        },
+    )
 
 
 class EnsureUserFromBot(BaseModel):

@@ -143,11 +143,30 @@ export const useAdminStore = defineStore('admin', () => {
     await http.post('/panel/achievements/assign', { user_id: userId, achievement_id: achievementId })
   }
 
+  /** Скачать Excel: только зарегистрированные на мероприятие (анкета, is_registered). */
+  async function exportUsersXlsx() {
+    const r = await http.get('/panel/users/export', { responseType: 'blob' })
+    const cd = r.headers['content-disposition'] || r.headers['Content-Disposition']
+    let filename = 'arkadium-meropriyatie.xlsx'
+    if (cd) {
+      const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^";\n]+)["']?/i) || cd.match(/filename="([^"]+)"/)
+      if (m) {
+        filename = decodeURIComponent(m[1].trim())
+      }
+    }
+    const url = window.URL.createObjectURL(new Blob([r.data]))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    window.URL.revokeObjectURL(url)
+  }
+
   return {
-    token, loading, error, isLoggedIn,
+    token, loading, error, isLoggedIn, http,
     login, logout,
     getStats,
-    getUsers, updateBalance, ensureUser, ensureUserByUsername,
+    getUsers, updateBalance, ensureUser, ensureUserByUsername, exportUsersXlsx,
     getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
     getProducts, createProduct, updateProduct, deleteProduct, uploadImage,
     getAchievements, createAchievement, updateAchievement, deleteAchievement, assignAchievement,
