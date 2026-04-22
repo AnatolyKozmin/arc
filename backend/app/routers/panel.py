@@ -174,10 +174,13 @@ def list_users(
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
+    registered_only: bool = False,
     _: None = Depends(require_panel),
     db: Session = Depends(get_db),
 ):
     q = db.query(models.User)
+    if registered_only:
+        q = q.filter(models.User.is_registered == True)
     if search:
         like = f"%{search}%"
         q = q.filter(
@@ -756,9 +759,11 @@ def remove_admin(
     return {"ok": True}
 
 
-# ── Tournament registrations (Brawl Stars / Clash Royale) ───────────────────────
+# ── Tournament registrations (BS/CR — ник в игре; MK/FIFA — без ника) ─────────
 
-_ALLOWED_GAMES = frozenset({"brawl_stars", "clash_royale"})
+_GAMES_WITH_NICK = frozenset({"brawl_stars", "clash_royale"})
+_GAMES_NAME_ONLY = frozenset({"mortal_kombat", "fifa"})
+_ALLOWED_GAMES = _GAMES_WITH_NICK | _GAMES_NAME_ONLY
 
 
 def _normalize_game_username(raw: str) -> str:
@@ -774,7 +779,7 @@ class TournamentBotRegister(BaseModel):
     telegram_id: int
     telegram_username: Optional[str] = None  # снимок @username из Telegram
     game: str
-    game_username: str  # ник в игре (из сообщения)
+    game_username: Optional[str] = None  # для BS/CR обязателен; для MK/FIFA не используется
 
 
 class PanelTournamentRow(BaseModel):
@@ -782,6 +787,7 @@ class PanelTournamentRow(BaseModel):
     telegram_id: int
     telegram_username: Optional[str]  # снимок при записи
     first_name: str
+    last_name: Optional[str]
     username: Optional[str]  # актуальный username из профиля User
     full_name: Optional[str]
     game: str
@@ -800,11 +806,20 @@ def register_tournament_via_bot(
 ):
     """Регистрация от имени пользователя по telegram_id (вызывается ботом)."""
     if data.game not in _ALLOWED_GAMES:
-        raise HTTPException(status_code=400, detail="game: ожидается brawl_stars или clash_royale")
-    try:
-        nick = _normalize_game_username(data.game_username)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(
+            status_code=400,
+            detail="game: brawl_stars, clash_royale, mortal_kombat или fifa",
+        )
+    if data.game in _GAMES_WITH_NICK:
+        raw_nick = (data.game_username or "").strip()
+        if not raw_nick:
+            raise HTTPException(status_code=400, detail="Ник в игре обязателен для Brawl Stars и Clash Royale")
+        try:
+            nick = _normalize_game_username(raw_nick)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    else:
+        nick = ""
 
     tg_un = (data.telegram_username or "").strip()
     if tg_un.startswith("@"):
@@ -815,6 +830,11 @@ def register_tournament_via_bot(
     user = db.query(models.User).filter(models.User.telegram_id == data.telegram_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь ещё не заходил в мини-апп — откройте Аркадиум один раз")
+    if data.game in _GAMES_NAME_ONLY and not user.is_registered:
+        raise HTTPException(
+            status_code=400,
+            detail="Сначала зарегистрируйся на мероприятие (анкета в мини-приложении или в боте).",
+        )
 
     existing = (
         db.query(models.TournamentRegistration)
@@ -850,6 +870,7 @@ def register_tournament_via_bot(
         telegram_id=user.telegram_id,
         telegram_username=reg.telegram_username,
         first_name=user.first_name,
+        last_name=user.last_name,
         username=user.username,
         full_name=user.full_name,
         game=reg.game,
@@ -885,6 +906,7 @@ def list_tournament_registrations(
                 telegram_id=u.telegram_id,
                 telegram_username=reg.telegram_username,
                 first_name=u.first_name,
+                last_name=u.last_name,
                 username=u.username,
                 full_name=u.full_name,
                 game=reg.game,

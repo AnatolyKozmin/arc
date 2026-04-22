@@ -1,7 +1,8 @@
 """
 Arkadium 2026 — Telegram Bot
 Турниры и меню — в основном кнопки (reply + inline).
-Служебные команды для админов: /stats, /users, /broadcast, /rass_6523, /rass_registration, /addcoins, /cancel
+Служебные команды для админов: /stats, /users, /broadcast, /rass_6523, /rass_registration,
+/rass_tournament_mk_fifa, /addcoins, /cancel
 """
 
 import asyncio
@@ -217,6 +218,39 @@ def registration_invite_kb() -> InlineKeyboardMarkup:
     )
 
 
+def tournament_mk_fifa_invite_kb() -> InlineKeyboardMarkup:
+    """Запись на Mortal Kombat / FIFA (без ника в игре) — к рассылке /rass_tournament_mk_fifa."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🥊 Mortal Kombat", callback_data="tourn2:pick:mk"),
+                InlineKeyboardButton(text="⚽ FIFA", callback_data="tourn2:pick:fifa"),
+            ],
+            [
+                InlineKeyboardButton(text="🥊 + ⚽ Обе дисциплины", callback_data="tourn2:pick:both"),
+            ],
+        ],
+    )
+
+
+def tournament_mk_fifa_confirm_kb(choice: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, записать", callback_data=f"tourn2:yes:{choice}"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="tourn2:cancel"),
+            ],
+        ],
+    )
+
+
+TOURN2_PICK_TITLES = {
+    "mk": "Mortal Kombat",
+    "fifa": "FIFA",
+    "both": "Mortal Kombat и FIFA",
+}
+
+
 def registration_project_reply_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=BTN_FLOW_CANCEL)]],
@@ -323,6 +357,13 @@ RASS_REGISTRATION_DEFAULT_TEXT = (
     "До встречи на проекте, твой динозавр 💜"
 )
 
+RASS_TOURN_MK_FIFA_DEFAULT_TEXT = (
+    "<b>Турниры на Аркадиуме</b>\n\n"
+    "Запишись на <b>Mortal Kombat</b>, <b>FIFA</b> или сразу на <b>обе дисциплины</b> — "
+    "имя и фамилию мы возьмём из твоей регистрации на мероприятие, ник в игре не нужен.\n\n"
+    "Нажми кнопку ниже 👇"
+)
+
 
 TAG_HELP_TEXT = (
     "📖 <b>Ник в игре</b>\n\n"
@@ -388,6 +429,14 @@ class RassRegistrationState(StatesGroup):
 
     waiting_text = State()
     waiting_scope = State()  # тест / все
+    waiting_confirm = State()
+
+
+class RassTournamentMkFifaState(StatesGroup):
+    """Рассылка зарегистрированным на мероприятие: запись на MK / FIFA (без ника в игре)."""
+
+    waiting_text = State()
+    waiting_scope = State()  # тест / все зарегистрированные
     waiting_confirm = State()
 
 
@@ -843,6 +892,147 @@ async def rass_registration_confirm(msg: Message, state: FSMContext, bot: Bot):
     await msg.answer("⌨️ Меню админа:", reply_markup=admin_menu_kb())
 
 
+# ── /rass_tournament_mk_fifa — рассылка зарегистрированным: MK / FIFA (без ника) ─
+
+@router.message(Command("rass_tournament_mk_fifa"))
+async def cmd_rass_tournament_mk_fifa_start(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        return
+    await state.set_state(RassTournamentMkFifaState.waiting_text)
+    await msg.answer(
+        "✍️ <b>Рассылка: турниры Mortal Kombat / FIFA</b>\n\n"
+        "Получатели с заполненной <b>регистрацией на мероприятие</b> (анкета в боте или мини-аппе).\n"
+        "К сообщению добавятся кнопки: <b>MK</b>, <b>FIFA</b> или <b>обе</b> — "
+        "ник в игре не спрашиваем, имя и фамилию берём из профиля Аркадиума.\n\n"
+        "Пришли текст в <b>HTML</b> или <code>/default</code> — подставлю шаблон.\n\n"
+        "/cancel — отмена.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+@router.message(RassTournamentMkFifaState.waiting_text, Command("cancel"))
+@router.message(RassTournamentMkFifaState.waiting_scope, Command("cancel"))
+@router.message(RassTournamentMkFifaState.waiting_confirm, Command("cancel"))
+async def rass_tournament_mk_fifa_cancel_cmd(msg: Message, state: FSMContext):
+    await state.clear()
+    kb = admin_menu_kb() if await is_admin(msg.from_user.id) else main_menu_kb()
+    await msg.answer("❌ Отменено.", reply_markup=kb)
+
+
+@router.message(RassTournamentMkFifaState.waiting_text)
+async def rass_tournament_mk_fifa_got_text(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        await state.clear()
+        return
+    if msg.text and msg.text.strip().lower() in ("/default", "default"):
+        text = RASS_TOURN_MK_FIFA_DEFAULT_TEXT
+    else:
+        text = msg.html_text or msg.text or ""
+        if not text.strip():
+            return await msg.answer("Пустой текст. Пришли HTML или <code>/default</code>.", parse_mode=ParseMode.HTML)
+    await state.update_data(mail_text=text)
+    await state.set_state(RassTournamentMkFifaState.waiting_scope)
+    await msg.answer(
+        "📬 <b>Кому отправить?</b>\n\n"
+        "• <code>тест</code> — только <b>админам</b> (для проверки кнопок)\n"
+        "• <code>все</code> — всем с анкетой на мероприятие (<b>зарегистрированным</b>)\n\n"
+        "Напиши одно слово: <b>тест</b> или <b>все</b>.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(RassTournamentMkFifaState.waiting_scope)
+async def rass_tournament_mk_fifa_got_scope(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        await state.clear()
+        return
+    if not msg.text:
+        return await msg.answer("Напиши <b>тест</b> или <b>все</b>.", parse_mode=ParseMode.HTML)
+    raw = msg.text.strip().lower()
+    if raw in ("тест", "test", "t"):
+        scope = "test"
+        scope_human = "только админы (тест)"
+    elif raw in ("все", "всё", "all", "a"):
+        scope = "registered"
+        scope_human = "все зарегистрированные на мероприятие"
+    else:
+        return await msg.answer("Нужно слово <b>тест</b> или <b>все</b>.", parse_mode=ParseMode.HTML)
+
+    await state.update_data(scope=scope)
+    await state.set_state(RassTournamentMkFifaState.waiting_confirm)
+    data = await state.get_data()
+    text = data["mail_text"]
+    await msg.answer(
+        f"📋 <b>Предпросмотр</b> ({scope_human})\n\n{text}\n\n"
+        "➕ К сообщению будут кнопки записи на MK / FIFA.\n\n"
+        "Отправить? <b>да / нет</b>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.message(RassTournamentMkFifaState.waiting_confirm)
+async def rass_tournament_mk_fifa_confirm(msg: Message, state: FSMContext, bot: Bot):
+    if not await is_admin(msg.from_user.id):
+        await state.clear()
+        return
+    if msg.text is None or msg.text.lower() not in ("да", "yes", "y", "д"):
+        await state.clear()
+        await msg.answer("❌ Отменено.", reply_markup=admin_menu_kb())
+        return
+
+    data = await state.get_data()
+    text = data["mail_text"]
+    test_only = data.get("scope") == "test"
+    await state.clear()
+
+    status_msg = await msg.answer("⏳ Рассылка…")
+
+    kb = tournament_mk_fifa_invite_kb()
+    sent = 0
+    failures: list[tuple[int, str]] = []
+
+    if test_only:
+        targets = await _admin_recipient_telegram_ids()
+        total_recipients = len(targets)
+        for tg_id in targets:
+            try:
+                await bot.send_message(tg_id, text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                sent += 1
+                await asyncio.sleep(0.05)
+            except Exception as ex:
+                failures.append((tg_id, _telegram_error_summary(ex)))
+                log.warning("rass_tournament_mk_fifa test send to %s: %s", tg_id, ex)
+        title = "Рассылка /rass_tournament_mk_fifa (тест — только админы)"
+    else:
+        try:
+            users_data = await api_get("/panel/users?registered_only=true&limit=10000")
+            users = users_data.get("items", users_data) if isinstance(users_data, dict) else users_data
+        except Exception as e:
+            return await status_msg.edit_text(f"❌ Не удалось получить пользователей: {e}")
+        targets_list = [u for u in users if u.get("telegram_id")]
+        total_recipients = len(targets_list)
+        for u in targets_list:
+            tg_id = u["telegram_id"]
+            try:
+                await bot.send_message(tg_id, text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                sent += 1
+                await asyncio.sleep(0.05)
+            except Exception as ex:
+                failures.append((tg_id, _telegram_error_summary(ex)))
+                log.warning("rass_tournament_mk_fifa send to %s: %s", tg_id, ex)
+        title = "Рассылка /rass_tournament_mk_fifa (зарегистрированные на мероприятие)"
+
+    report = _format_mailing_report(
+        title=title,
+        total_recipients=total_recipients,
+        sent=sent,
+        failures=failures,
+    )
+    await status_msg.edit_text(report, parse_mode=ParseMode.HTML)
+    await msg.answer("⌨️ Меню админа:", reply_markup=admin_menu_kb())
+
+
 # ── Add Coins ─────────────────────────────────────────────────────────────────
 
 @router.message(F.text == "💰 Начислить монеты")
@@ -933,6 +1123,111 @@ async def open_mini_app(msg: Message, state: FSMContext):
             parse_mode=ParseMode.HTML,
         )
     await msg.answer("Открывай:", reply_markup=mini_app_kb())
+
+
+# ── Tournament MK / FIFA (без ника в игре, имя/фамилия из профиля) ─────────────
+
+TOURN2_GAMES = {
+    "mk": ["mortal_kombat"],
+    "fifa": ["fifa"],
+    "both": ["mortal_kombat", "fifa"],
+}
+
+
+@router.callback_query(F.data.startswith("tourn2:pick:"))
+async def tourn2_cb_pick(query: CallbackQuery, state: FSMContext):
+    if not query.from_user or not query.message:
+        return await query.answer()
+    if await _in_registration_project_fsm(state):
+        await query.answer("Сначала заверши анкету на проект или /cancel", show_alert=True)
+        return
+    parts = (query.data or "").split(":")
+    choice = parts[-1] if len(parts) >= 3 else ""
+    if choice not in TOURN2_PICK_TITLES:
+        return await query.answer("Неизвестный вариант", show_alert=True)
+    await query.answer()
+    title = TOURN2_PICK_TITLES[choice]
+    await query.message.answer(
+        "🎮 <b>Запись на турнир</b>: "
+        f"{html.escape(title)}\n\n"
+        "Имя и фамилию возьмём из твоей <b>регистрации на мероприятие</b> в Аркадиуме. "
+        "Ник в игре <b>не нужен</b>.\n\n"
+        "Подтверждаешь?",
+        parse_mode=ParseMode.HTML,
+        reply_markup=tournament_mk_fifa_confirm_kb(choice),
+    )
+
+
+@router.callback_query(F.data.startswith("tourn2:yes:"))
+async def tourn2_cb_yes(query: CallbackQuery, state: FSMContext):
+    if not query.from_user or not query.message:
+        return await query.answer()
+    if await _in_registration_project_fsm(state):
+        await query.answer("Сначала заверши анкету на проект или /cancel", show_alert=True)
+        return
+    parts = (query.data or "").split(":")
+    choice = parts[-1] if len(parts) >= 3 else ""
+    games = TOURN2_GAMES.get(choice)
+    if not games:
+        return await query.answer("Неизвестный вариант", show_alert=True)
+
+    uid = query.from_user.id
+    tun = query.from_user.username
+    errs: list[str] = []
+    for g in games:
+        try:
+            await api_post(
+                "/panel/tournaments/register",
+                {
+                    "telegram_id": uid,
+                    "telegram_username": tun,
+                    "game": g,
+                    "game_username": None,
+                },
+            )
+        except httpx.HTTPStatusError as e:
+            detail = str(e)
+            try:
+                body = e.response.json()
+                if isinstance(body.get("detail"), str):
+                    detail = body["detail"]
+            except Exception:
+                pass
+            errs.append(f"{g}: {detail}")
+
+    try:
+        await query.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    if errs:
+        await query.answer("Часть записей не удалась", show_alert=True)
+        err_text = "\n".join(html.escape(x) for x in errs[:5])
+        await query.message.answer(
+            "❌ <b>Не удалось записать</b>\n\n" + err_text,
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    await query.answer("Записано!")
+    done_title = TOURN2_PICK_TITLES.get(choice, choice)
+    await query.message.answer(
+        f"✅ Ты в списке: <b>{html.escape(done_title)}</b>. Удачи на турнире!",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.callback_query(F.data == "tourn2:cancel")
+async def tourn2_cb_cancel(query: CallbackQuery, state: FSMContext):
+    await query.answer("Ок")
+    if await _in_registration_project_fsm(state):
+        return
+    if query.message:
+        try:
+            await query.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await query.message.answer("Запись отменена.")
 
 
 # ── Tournament registration (Brawl Stars / Clash Royale) — только заглушка ────
@@ -1265,25 +1560,54 @@ async def cmd_tournament_list(msg: Message):
         return await msg.answer("Пока никто не зарегистрировался на турниры.")
     lines_bs: list[str] = []
     lines_cr: list[str] = []
+    lines_mk: list[str] = []
+    lines_fifa: list[str] = []
+
+    def _at_username(r: dict) -> str:
+        u = r.get("username") or r.get("telegram_username") or ""
+        u = str(u).strip()
+        if not u or u == "—":
+            return "—"
+        if not u.startswith("@"):
+            u = "@" + u
+        return u
+
     for r in rows:
         tg = r.get("telegram_id")
-        tun = r.get("telegram_username") or ""
-        if tun and not str(tun).startswith("@"):
-            tun = "@" + str(tun)
-        elif not tun:
-            tun = "—"
-        nick = r.get("game_username") or ""
-        line = f"• id <code>{tg}</code> {tun} — игра <code>{nick}</code>"
-        if r.get("game") == "brawl_stars":
+        tun = _at_username(r)
+        game = r.get("game") or ""
+        nick = (r.get("game_username") or "").strip()
+
+        if game in ("mortal_kombat", "fifa"):
+            fn = (r.get("first_name") or "").strip()
+            ln = (r.get("last_name") or "").strip()
+            name_disp = (fn + " " + ln).strip() or (r.get("full_name") or "").strip() or "—"
+            line = f"• {html.escape(tun)} — <b>{html.escape(name_disp)}</b> <code>(tg {tg})</code>"
+            if game == "mortal_kombat":
+                lines_mk.append(line)
+            else:
+                lines_fifa.append(line)
+            continue
+
+        nick_esc = html.escape(nick) if nick else "—"
+        line = f"• id <code>{tg}</code> {html.escape(tun)} — ник <code>{nick_esc}</code>"
+        if game == "brawl_stars":
             lines_bs.append(line)
+        elif game == "clash_royale":
+            lines_cr.append(line)
         else:
             lines_cr.append(line)
+
     chunks: list[str] = []
     head = "🏆 <b>Регистрации</b>\n\n"
     if lines_bs:
         chunks.append("🟢 <b>Brawl Stars</b>\n" + "\n".join(lines_bs))
     if lines_cr:
         chunks.append("👑 <b>Clash Royale</b>\n" + "\n".join(lines_cr))
+    if lines_mk:
+        chunks.append("🥊 <b>Mortal Kombat</b>\n" + "\n".join(lines_mk))
+    if lines_fifa:
+        chunks.append("⚽ <b>FIFA</b>\n" + "\n".join(lines_fifa))
     text = head + "\n\n".join(chunks)
     if len(text) > 4000:
         text = text[:3990] + "…"

@@ -1,0 +1,26 @@
+# Единственный nginx на сервере: 80/443, два домена → два стека приложений.
+# Сеть arkadium_shared должна существовать (docker network create arkadium_shared).
+#
+# Запуск из этой папки:
+#   cd deploy/multi-site/reverse-proxy && docker compose up -d
+#
+# Перед запуском: сгенерируйте nginx.conf из шаблона (см. README в deploy/multi-site).
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: arkadium-edge-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - arkadium_shared
+    restart: unless-stopped
+
+networks:
+  arkadium_shared:
+    external: true
+    name: arkadium_shared
