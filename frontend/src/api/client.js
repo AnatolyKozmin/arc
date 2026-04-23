@@ -41,9 +41,17 @@ client.interceptors.response.use(
 export default client
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
+// Полный path от короля сайта: combineURLs("/api", "/") → "/api/" (ломает логин).
 export const authApi = {
-  telegram: (initData) => client.post('/auth/telegram', { init_data: initData }),
-  dev: (data) => client.post('/auth/dev', data),
+  telegram: (initData) =>
+    client.request({
+      method: 'post',
+      baseURL: '',
+      url: '/api/auth/telegram',
+      data: { init_data: initData },
+    }),
+  dev: (data) =>
+    client.request({ method: 'post', baseURL: '', url: '/api/auth/dev', data }),
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
