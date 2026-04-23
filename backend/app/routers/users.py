@@ -17,11 +17,13 @@ def get_me(current_user: models.User = Depends(get_current_user)):
 
 
 @router.put("/me/register", response_model=schemas.UserOut)
+@router.post("/me/register", response_model=schemas.UserOut)
 def register_user(
     data: schemas.UserRegisterRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # POST — дубликат: часть прокси/WebView плохо отрабатывают PUT к /api/… (405), POST обычно проходит.
     current_user.full_name = data.full_name
     current_user.university = data.university
     current_user.course = data.course

@@ -70,7 +70,14 @@ export const authApi = {
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const usersApi = {
   me: () => client.get('/users/me'),
-  register: (data) => client.put('/users/me/register', data),
+  // POST: надёжнее PUT за прокси/мини-апп; путь от корня, без merge с baseURL /api
+  register: (data) =>
+    client.request({
+      method: 'post',
+      baseURL: '',
+      url: '/api/users/me/register',
+      data,
+    }),
   setCharacter: (character_id) => client.put('/users/me/character', { character_id }),
   adjustBalance: (userId, amount, reason) =>
     client.post(`/users/${userId}/balance`, { amount, reason }),
