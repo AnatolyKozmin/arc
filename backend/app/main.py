@@ -83,15 +83,8 @@ def health():
     return {"status": "ok", "app": "Аркадиум"}
 
 
-@app.get("/api", include_in_schema=False)
-@app.get("/api/", include_in_schema=False)
-def api_root_get():
-    """Иначе GET /api/ даёт 405 — только POST был зарегистрирован (проверки ссылок, браузер)."""
-    return {
-        "detail": "Arkadium API. GET /api/health — здоровье. Мини-апп: POST /api/auth/telegram с {\"init_data\": \"...\"}.",
-    }
-
-
+# Два пути: nginx/клиенты часто шлют POST /api без «/» в конце; только POST /api/ давало 405 Method Not Allowed.
+@app.post("/api", include_in_schema=False)
 @app.post("/api/", include_in_schema=False)
 async def api_post_root_compatibility(
     request: Request,
