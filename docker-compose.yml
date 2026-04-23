@@ -1,8 +1,11 @@
 # Arkadium: frontend + backend + bot. TLS и 80/443 — отдельно (папка infra на сервере).
 # Сеть: arkadium_shared (создать один раз: docker network create arkadium_shared)
 #
-# .env: DOMAIN, SITE_SLUG=site1, BOT_TOKEN, SECRET_KEY, …
+# .env: DOMAIN, SITE_SLUG=site1, BOT_TOKEN, SECRET_KEY, DATA_DIR (каталог с arkadium.db), …
 # Запуск из корня: docker compose up -d --build  (файл .env подхватывается сам)
+#
+# База: DATA_DIR на хосте монтируется в /data → sqlite:////data/arkadium.db
+# Прод с уже существующим томом Docker: DATA_DIR=/var/lib/docker/volumes/СТАРЫЙ_ТОМ_db-data/_data
 
 services:
   backend:
@@ -21,7 +24,7 @@ services:
       - PANEL_PASSWORD=${PANEL_PASSWORD:-arkadium2026}
       - UPLOAD_DIR=/app/uploads
     volumes:
-      - db-data:/data
+      - ${DATA_DIR:-./data}:/data
       - uploads-data:/app/uploads
     networks:
       - arkadium_shared
@@ -58,5 +61,4 @@ networks:
     name: arkadium_shared
 
 volumes:
-  db-data:
   uploads-data:

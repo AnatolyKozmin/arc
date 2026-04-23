@@ -73,7 +73,11 @@ def get_current_user(
 
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        # 401, не 404: иначе фронт не сбрасывает сессию, а /announcements и /products падают «в тихую».
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not in database, re-login via Telegram",
+        )
     return user
 
 
