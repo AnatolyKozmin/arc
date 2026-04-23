@@ -33,21 +33,19 @@
 
             <p v-if="buyError" class="modal__error">{{ buyError }}</p>
 
-            <button
-              v-if="canBuy"
-              class="modal__buy-btn"
-              :disabled="buying"
-              @click="buy"
-            >
-              {{ buying ? '…' : `Купить за ${product.price.toLocaleString('ru')} 🪙` }}
-            </button>
-            <button
-              v-else-if="product.quantity > 0 && !canAfford"
-              class="modal__buy-btn modal__buy-btn--muted"
-              disabled
-            >
-              Недостаточно аркоинов
-            </button>
+            <template v-if="inStock">
+              <button
+                type="button"
+                class="modal__buy-btn"
+                :disabled="!canAfford || buying"
+                @click="buy"
+              >
+                {{ buying ? '…' : `Купить за ${product.price.toLocaleString('ru')} 🪙` }}
+              </button>
+              <p v-if="!canAfford" class="modal__balance-hint">
+                Недостаточно аркоинов. У вас: {{ (userStore.user?.balance ?? 0).toLocaleString('ru') }} 🪙
+              </p>
+            </template>
 
             <button class="modal__close-btn" @click="$emit('close')">Закрыть</button>
           </div>
@@ -76,19 +74,24 @@ watch(
   }
 )
 
+/** Сколько штук (если в API вдруг нет поля — считаем 0, чтобы не ломать UI). */
+const qty = computed(() => {
+  const q = props.product?.quantity
+  if (q === undefined || q === null) return 0
+  const n = Number(q)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+})
+
+const inStock = computed(() => qty.value > 0)
+
 const canAfford = computed(() => {
   const b = userStore.user?.balance ?? 0
   const p = props.product?.price ?? 0
   return b >= p
 })
 
-const canBuy = computed(() => {
-  if (!props.product) return false
-  return props.product.quantity > 0 && canAfford.value
-})
-
 async function buy() {
-  if (!props.product || buying.value || !canBuy.value) return
+  if (!props.product || buying.value || !inStock.value || !canAfford.value) return
   buying.value = true
   buyError.value = ''
   try {
@@ -97,7 +100,6 @@ async function buy() {
     emit('purchased', data)
     window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
   } catch (e) {
-    const d = e.response?.data?.detail
     buyError.value = apiErrorMessage(e, 'Не удалось оформить покупку')
     window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error')
   } finally {
@@ -107,16 +109,16 @@ async function buy() {
 
 const stockClass = computed(() => {
   if (!props.product) return ''
-  if (props.product.quantity === 0) return 'modal__stock--sold'
-  if (props.product.quantity <= 3) return 'modal__stock--few'
+  if (qty.value === 0) return 'modal__stock--sold'
+  if (qty.value <= 3) return 'modal__stock--few'
   return 'modal__stock--ok'
 })
 
 const stockText = computed(() => {
   if (!props.product) return ''
-  if (props.product.quantity === 0) return 'Нет в наличии'
-  if (props.product.quantity <= 3) return `Осталось ${props.product.quantity} шт`
-  return `В наличии ${props.product.quantity} шт`
+  if (qty.value === 0) return 'Нет в наличии'
+  if (qty.value <= 3) return `Осталось ${qty.value} шт`
+  return `В наличии ${qty.value} шт`
 })
 </script>
 
@@ -253,13 +255,16 @@ const stockText = computed(() => {
 }
 
 .modal__buy-btn:disabled {
-  opacity: 0.65;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
-.modal__buy-btn--muted {
-  background: var(--color-bg);
+.modal__balance-hint {
+  font-size: 14px;
+  line-height: 1.4;
   color: var(--color-text-secondary);
+  text-align: center;
+  margin: -8px 0 0;
 }
 
 .modal__close-btn {
