@@ -14,7 +14,8 @@ services:
       - DATABASE_URL=sqlite:////data/arkadium.db
       - ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-}
       - ORGANIZER_TELEGRAM_IDS=${ORGANIZER_TELEGRAM_IDS:-}
-      - CORS_ORIGINS=https://${DOMAIN}
+      # Список origin через запятую. Если не задать в .env — https://$DOMAIN и https://www.$DOMAIN
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://${DOMAIN},https://www.${DOMAIN}}
       - DEV_MODE=${DEV_MODE:-false}
       - PANEL_USERNAME=${PANEL_USERNAME:-admin}
       - PANEL_PASSWORD=${PANEL_PASSWORD:-arkadium2026}

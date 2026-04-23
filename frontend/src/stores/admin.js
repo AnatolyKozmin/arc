@@ -29,7 +29,12 @@ export const useAdminStore = defineStore('admin', () => {
       localStorage.setItem('panel_token', token.value)
       return true
     } catch (e) {
-      error.value = e.response?.data?.detail || 'Ошибка входа'
+      const d = e.response?.data?.detail
+      if (d == null && !e.response) {
+        error.value = 'Нет ответа от API (сеть, 502 или CORS). Проверь DOMAIN и CORS_ORIGINS в .env, пересоздай backend.'
+      } else {
+        error.value = typeof d === 'string' ? d : 'Ошибка входа'
+      }
       return false
     } finally {
       loading.value = false

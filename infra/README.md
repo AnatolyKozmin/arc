@@ -102,7 +102,11 @@ networks:
 
 2. Подставьте домены и upstream’ы (пример: первый сайт — два контейнера `:80` и `:8000`, второй — febnik `febnik:8080`):
 
-   **Важно:** если `sed` не находит `nginx.template.conf`, перенаправление `> nginx.conf` может **обнулить** файл. Проверяйте: `wc -l nginx.conf`. Готовый заполненный пример для **putevod-ik.ru + febnik.ru** — в репозитории: [`examples/nginx.putevod-ik.febnik.conf`](examples/nginx.putevod-ik.febnik.conf) (скопировать на сервер как `nginx.conf`).
+   **Важно:** если `sed` не находит `nginx.template.conf`, перенаправление `> nginx.conf` может **обнулить** файл. Проверяйте: `wc -l nginx.conf`.
+
+   Готовые примеры в репозитории (скопировать на сервер как `~/infra/nginx.conf`):
+   - только **Arkadium** (putevod-ik.ru): [`examples/nginx.putevod-ik.arkadium-only.conf`](examples/nginx.putevod-ik.arkadium-only.conf)
+   - **Arkadium + febnik**: [`examples/nginx.putevod-ik.febnik.conf`](examples/nginx.putevod-ik.febnik.conf)
 
 3. Команда `sed` (в каталоге **`~/infra`**, где лежит **`nginx.template.conf`**):
 
