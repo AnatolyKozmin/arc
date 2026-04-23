@@ -61,10 +61,15 @@ npm run dev
 ### 4. Docker Compose (продакшн)
 
 ```bash
-cp backend/.env.example .env
-# Заполните переменные в .env
-docker compose up -d
+cp .env.example .env
+# DOMAIN, SITE_SLUG, BOT_TOKEN, SECRET_KEY, …
+docker network create arkadium_shared  # один раз; TLS/80/443 — отдельно, см. infra/README.md
+docker compose up -d --build
 ```
+
+Файл **`.env`** в корне репозитория Docker Compose подставляет в `docker-compose.yml` сам; отдельный `--env-file` не нужен.
+
+Корневой `docker-compose.yml` поднимает только **frontend, backend, bot** в сети `arkadium_shared` (встроенного nginx в этом файле **нет**).
 
 ## Переменные окружения
 

@@ -10,7 +10,7 @@
 
 | Сайт | Откуда compose | Сеть |
 |------|----------------|------|
-| **Arkadium** | этот репо: `deploy/multi-site/docker-compose.apps-only.yml` | `arkadium_shared` (external) |
+| **Arkadium** | этот репо: **корневой** `docker-compose.yml` | `arkadium_shared` (external) |
 | **Febnik** (или любой другой) | **свой** `docker-compose.yml` в репо febnik | та же **`arkadium_shared`** как `external: true` |
 
 У сервиса, куда edge-nginx проксирует запросы (фронт, встроенный nginx приложения и т.д.), задайте стабильный **`container_name`** (например `febnik-web`) и используйте это имя во втором блоке `server` в `reverse-proxy/nginx.conf` в `proxy_pass`.
@@ -44,10 +44,12 @@ docker network create arkadium_shared
 Из **корня** клона репозитория Arkadium, со своим `.env` (`DOMAIN`, `SITE_SLUG`, `BOT_TOKEN`, …):
 
 ```bash
-docker compose --env-file .env -f deploy/multi-site/docker-compose.apps-only.yml up -d --build
+docker compose up -d --build
 ```
 
-Появятся контейнеры вида `arkadium-${SITE_SLUG}-frontend` / `…-backend` — **эти** имена подставляете в первый блок `server` в edge-nginx (слот site1 в шаблонах).
+(Из корня репо; `.env` рядом с `docker-compose.yml` подхватывается автоматически.)
+
+Появятся контейнеры вида `arkadium-site1-frontend` / `…-backend` (если `SITE_SLUG=site1`) — **эти** имена подставляете в первый блок `server` в edge-nginx.
 
 ### Febnik (другой сайт)
 
@@ -125,7 +127,7 @@ docker compose up -d
 ### Когда появится третий домен
 
 1. Третий каталог, `.env` с `DOMAIN=новый.домен`, `SITE_SLUG=site3`, свой бот и т.д.  
-2. `docker compose … docker-compose.apps-only.yml up -d --build`  
+2. `docker compose up -d --build` (из корня репозитория Arkadium)  
 3. Сертификаты в `certs/site3/`  
 4. Пересобрать конфиг из **`nginx.template.conf`** (там три слота), например:
 
@@ -149,7 +151,7 @@ docker compose exec nginx nginx -s reload
 ## 5. Порядок запуска
 
 1. `docker network create arkadium_shared`  
-2. Поднять все нужные стеки `docker-compose.apps-only.yml`  
+2. Поднять Arkadium: `docker compose up -d --build` в корне репо  
 3. Положить сертификаты в `reverse-proxy/certs/site…`  
 4. Сгенерировать `reverse-proxy/nginx.conf` и `docker compose up -d` в `reverse-proxy/`
 
