@@ -29,9 +29,30 @@ from aiogram.types import (
     KeyboardButton,
     ReplyKeyboardRemove,
 )
+from aiogram.exceptions import TelegramBadRequest
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+
+async def safe_answer_query(
+    query: CallbackQuery,
+    text: str | None = None,
+    show_alert: bool = False,
+) -> bool:
+    """answerCallbackQuery. False = callback уже протух, дальше шаги лучше не выполнять."""
+    try:
+        if text is not None:
+            await query.answer(text, show_alert=show_alert)
+        else:
+            await query.answer()
+    except TelegramBadRequest as e:
+        m = (getattr(e, "message", None) or str(e)).lower()
+        if "too old" in m or "query id is invalid" in m or "response timeout" in m:
+            log.debug("callback query expired, skip answer: %s", m)
+            return False
+        raise
+    return True
 
 BOT_TOKEN    = os.getenv("BOT_TOKEN", "")
 MINI_APP_URL = os.getenv("MINI_APP_URL", "https://arkadium.example.com")
@@ -1139,15 +1160,17 @@ TOURN2_GAMES = {
 @router.callback_query(F.data.startswith("tourn2:pick:"))
 async def tourn2_cb_pick(query: CallbackQuery, state: FSMContext):
     if not query.from_user or not query.message:
-        return await query.answer()
+        await safe_answer_query(query)
+        return
     if await _in_registration_project_fsm(state):
-        await query.answer("Сначала заверши анкету на проект или /cancel", show_alert=True)
+        await safe_answer_query(query, "Сначала заверши анкету на проект или /cancel", show_alert=True)
         return
     parts = (query.data or "").split(":")
     choice = parts[-1] if len(parts) >= 3 else ""
     if choice not in TOURN2_PICK_TITLES:
-        return await query.answer("Неизвестный вариант", show_alert=True)
-    await query.answer()
+        await safe_answer_query(query, "Неизвестный вариант", show_alert=True)
+        return
+    await safe_answer_query(query)
     title = TOURN2_PICK_TITLES[choice]
     await query.message.answer(
         "🎮 <b>Запись на турнир</b>: "
@@ -1163,15 +1186,21 @@ async def tourn2_cb_pick(query: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("tourn2:yes:"))
 async def tourn2_cb_yes(query: CallbackQuery, state: FSMContext):
     if not query.from_user or not query.message:
-        return await query.answer()
+        await safe_answer_query(query)
+        return
     if await _in_registration_project_fsm(state):
-        await query.answer("Сначала заверши анкету на проект или /cancel", show_alert=True)
+        await safe_answer_query(query, "Сначала заверши анкету на проект или /cancel", show_alert=True)
         return
     parts = (query.data or "").split(":")
     choice = parts[-1] if len(parts) >= 3 else ""
     games = TOURN2_GAMES.get(choice)
     if not games:
-        return await query.answer("Неизвестный вариант", show_alert=True)
+        await safe_answer_query(query, "Неизвестный вариант", show_alert=True)
+        return
+
+    # Сразу ack — иначе callback протухает, пока крутятся api_post
+    if not await safe_answer_query(query):
+        return
 
     uid = query.from_user.id
     tun = query.from_user.username
@@ -1203,25 +1232,23 @@ async def tourn2_cb_yes(query: CallbackQuery, state: FSMContext):
         pass
 
     if errs:
-        await query.answer("Часть записей не удалась", show_alert=True)
         err_text = "\n".join(html.escape(x) for x in errs[:5])
         await query.message.answer(
-            "❌ <b>Не удалось записать</b>\n\n" + err_text,
+            "❌ <b>Часть записей не удалась</b>\n\n" + err_text,
             parse_mode=ParseMode.HTML,
         )
         return
 
-    await query.answer("Записано!")
     done_title = TOURN2_PICK_TITLES.get(choice, choice)
     await query.message.answer(
-        f"✅ Ты в списке: <b>{html.escape(done_title)}</b>. Удачи на турнире!",
+        f"✅ <b>Записано!</b> Ты в списке: <b>{html.escape(done_title)}</b>. Удачи на турнире!",
         parse_mode=ParseMode.HTML,
     )
 
 
 @router.callback_query(F.data == "tourn2:cancel")
 async def tourn2_cb_cancel(query: CallbackQuery, state: FSMContext):
-    await query.answer("Ок")
+    await safe_answer_query(query, "Ок")
     if await _in_registration_project_fsm(state):
         return
     if query.message:
@@ -1277,7 +1304,7 @@ async def tournament_help_static(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data.in_({"tourn:bs", "tourn:cr"}))
 async def tournament_cb_pick_game(query: CallbackQuery, state: FSMContext):
-    await query.answer("Ивент уже прошёл", show_alert=True)
+    await safe_answer_query(query, "Ивент уже прошёл", show_alert=True)
     if await _in_registration_project_fsm(state):
         return
     await state.clear()
@@ -1286,7 +1313,7 @@ async def tournament_cb_pick_game(query: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "tourn:help")
 async def tournament_cb_help(query: CallbackQuery):
-    await query.answer()
+    await safe_answer_query(query)
     await _reply_tournament_ended_callback(query)
 
 
@@ -1319,14 +1346,14 @@ async def tournament_got_game_nick(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == "tourn:retry", StateFilter(TournamentState.confirming))
 async def tournament_cb_retry(query: CallbackQuery, state: FSMContext):
-    await query.answer("Ивент уже прошёл", show_alert=True)
+    await safe_answer_query(query, "Ивент уже прошёл", show_alert=True)
     await state.clear()
     await _reply_tournament_ended_callback(query)
 
 
 @router.callback_query(F.data == "tourn:save", StateFilter(TournamentState.confirming))
 async def tournament_cb_save(query: CallbackQuery, state: FSMContext):
-    await query.answer("Ивент уже прошёл", show_alert=True)
+    await safe_answer_query(query, "Ивент уже прошёл", show_alert=True)
     await state.clear()
     await _reply_tournament_ended_callback(query)
 
@@ -1390,7 +1417,8 @@ async def regproj_from_menu_button(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == REGPROJ_CALLBACK)
 async def regproj_cb_start(query: CallbackQuery, state: FSMContext):
-    await query.answer()
+    if not await safe_answer_query(query):
+        return
     if not query.from_user or not query.message:
         return
     await _begin_registration_project_flow(query.message, state, query.from_user)
