@@ -74,15 +74,23 @@ watch(
   }
 )
 
-/** Сколько штук (если в API вдруг нет поля — считаем 0, чтобы не ломать UI). */
+/**
+ * Остаток. Если API не прислал quantity — не прячем кнопку «Купить» (сервер всё равно проверит).
+ */
 const qty = computed(() => {
   const q = props.product?.quantity
-  if (q === undefined || q === null) return 0
+  if (q === undefined || q === null) return null
   const n = Number(q)
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+  if (!Number.isFinite(n)) return null
+  return Math.max(0, Math.floor(n))
 })
 
-const inStock = computed(() => qty.value > 0)
+/** false только при явном «0 шт»; null/undefined → показываем кнопку покупки */
+const inStock = computed(() => {
+  const q = qty.value
+  if (q === null) return true
+  return q > 0
+})
 
 const canAfford = computed(() => {
   const b = userStore.user?.balance ?? 0
@@ -109,16 +117,20 @@ async function buy() {
 
 const stockClass = computed(() => {
   if (!props.product) return ''
-  if (qty.value === 0) return 'modal__stock--sold'
-  if (qty.value <= 3) return 'modal__stock--few'
+  const q = qty.value
+  if (q === 0) return 'modal__stock--sold'
+  if (q === null) return 'modal__stock--ok'
+  if (q <= 3) return 'modal__stock--few'
   return 'modal__stock--ok'
 })
 
 const stockText = computed(() => {
   if (!props.product) return ''
-  if (qty.value === 0) return 'Нет в наличии'
-  if (qty.value <= 3) return `Осталось ${qty.value} шт`
-  return `В наличии ${qty.value} шт`
+  const q = qty.value
+  if (q === 0) return 'Нет в наличии'
+  if (q === null) return 'В наличии'
+  if (q <= 3) return `Осталось ${q} шт`
+  return `В наличии ${q} шт`
 })
 </script>
 
