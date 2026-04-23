@@ -21,6 +21,7 @@ services:
       # Список origin через запятую. Если не задать в .env — https://$DOMAIN и https://www.$DOMAIN
       - CORS_ORIGINS=${CORS_ORIGINS:-https://${DOMAIN},https://www.${DOMAIN}}
       - DEV_MODE=${DEV_MODE:-false}
+      - LOG_API_REQUESTS=${LOG_API_REQUESTS:-false}
       - PANEL_USERNAME=${PANEL_USERNAME:-admin}
       - PANEL_PASSWORD=${PANEL_PASSWORD:-arkadium2026}
       - UPLOAD_DIR=/app/uploads

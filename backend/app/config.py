@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     # Загрузка картинок в админке (абсолютный путь в Docker: /app/uploads)
     upload_dir: str = "uploads"
     max_upload_mb: int = 12
+    # env LOG_API_REQUESTS: в лог uvicorn печатать method/path для /api* (проверка nginx).
+    log_api_requests: bool = False
 
     @classmethod
     def settings_customise_sources(

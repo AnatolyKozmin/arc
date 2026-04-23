@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request, status
@@ -5,6 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
+
+_log = logging.getLogger("arkadium.api")
 
 from app.config import settings
 from app.database import Base, engine, get_db
@@ -17,6 +21,13 @@ _POST_API_ROOT_404 = JSONResponse(
     content={
         "detail": "POST /api/ не поддерживается. Для мини-аппа: POST /api/auth/telegram с телом {\"init_data\": \"...\"}."
     },
+)
+
+# Тело анкеты на /api/ = nginx отдал сюда вместо /api/users/me/register
+_REGISTER_BODY_HINT = (
+    "POST пришёл на путь /api/ с телом анкеты (full_name, …), а не на /api/users/me/register. "
+    "Скорее всего nginx обрезает URI. Нужно: proxy_pass http://BACKEND:8000$request_uri; "
+    "без суффикса /api/ после порта. Включи LOG_API_REQUESTS=true и смотри логи."
 )
 
 # Create all tables on startup
@@ -59,6 +70,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class _RequestLogMiddleware(BaseHTTPMiddleware):
+    """См. LOG_API_REQUESTS — в логах видно реальный path, как дошёл запрос за edge-nginx."""
+
+    async def dispatch(self, request: Request, call_next):
+        if settings.log_api_requests and request.url.path.startswith("/api"):
+            q = str(request.query_params)
+            _log.warning(
+                "%s %s%s | host=%s | xff=%s",
+                request.method,
+                request.url.path,
+                ("?" + q) if q else "",
+                request.headers.get("host", ""),
+                request.headers.get("x-forwarded-for", ""),
+            )
+        return await call_next(request)
+
+
+app.add_middleware(_RequestLogMiddleware)
 
 # API routes
 app.include_router(auth.router, prefix="/api")
@@ -111,6 +142,14 @@ async def api_post_root_compatibility(
         except Exception:
             return _POST_API_ROOT_404
         return telegram_auth(payload, db)
+
+    # Регистрация/анкета попала на корень из-за proxy
+    if isinstance(body, dict) and not body.get("init_data"):
+        if {"full_name", "university", "course", "group"}.issubset(body.keys()):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"detail": _REGISTER_BODY_HINT},
+            )
 
     return _POST_API_ROOT_404
 
