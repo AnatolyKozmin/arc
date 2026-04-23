@@ -90,6 +90,23 @@ class Product(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    purchases = relationship("ProductPurchase", back_populates="product")
+
+
+class ProductPurchase(Base):
+    """Покупка товара за аркоины (фиксируем цену и название на момент сделки)."""
+    __tablename__ = "product_purchases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    price_paid = Column(Integer, nullable=False)
+    product_name = Column(String(200), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", backref="product_purchases")
+    product = relationship("Product", back_populates="purchases")
+
 
 class Achievement(Base):
     __tablename__ = "achievements"

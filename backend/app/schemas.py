@@ -109,6 +109,30 @@ class ProductOut(BaseModel):
         from_attributes = True
 
 
+class PurchaseResult(BaseModel):
+    """Ответ после успешной покупки в магазине."""
+    balance: int
+    product: ProductOut
+
+
+class ProductPurchaseRow(BaseModel):
+    """Строка для админки: кто что купил."""
+    id: int
+    created_at: datetime
+    price_paid: int
+    product_id: int
+    product_name: str
+    user_id: int
+    telegram_id: int
+    username: Optional[str]
+    first_name: str
+    last_name: Optional[str]
+    full_name: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
 # ── Transaction ───────────────────────────────────────────────────────────────
 class TransactionCreate(BaseModel):
     user_id: int

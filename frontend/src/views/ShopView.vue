@@ -28,7 +28,11 @@
       <p>Товары появятся скоро</p>
     </div>
 
-    <ProductModal :product="selectedProduct" @close="selectedProduct = null" />
+    <ProductModal
+      :product="selectedProduct"
+      @close="selectedProduct = null"
+      @purchased="onPurchased"
+    />
   </div>
 </template>
 
@@ -47,6 +51,13 @@ const selectedProduct = ref(null)
 function openProduct(product) {
   selectedProduct.value = product
   window.Telegram?.WebApp?.HapticFeedback?.impactOccurred('light')
+}
+
+function onPurchased({ product }) {
+  shopStore.applyProductUpdate(product)
+  if (selectedProduct.value?.id === product.id) {
+    selectedProduct.value = { ...selectedProduct.value, ...product }
+  }
 }
 
 onMounted(() => shopStore.fetchAll())

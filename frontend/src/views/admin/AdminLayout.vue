@@ -45,6 +45,7 @@ const navItems = [
   { to: '/admin/users', icon: '👥', label: 'Участники' },
   { to: '/admin/announcements', icon: '📣', label: 'Объявления' },
   { to: '/admin/products', icon: '🛍️', label: 'Товары' },
+  { to: '/admin/purchases', icon: '🧾', label: 'Покупки' },
   { to: '/admin/achievements', icon: '🏆', label: 'Достижения' },
   { to: '/admin/admins', icon: '🛡️', label: 'Администраторы' },
 ]

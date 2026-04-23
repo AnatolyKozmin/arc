@@ -40,6 +40,20 @@ client.interceptors.response.use(
 
 export default client
 
+/** Текст ошибки API (string detail или Pydantic / массив). */
+export function apiErrorMessage(error, fallback = 'Ошибка запроса') {
+  const d = error?.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    return d
+      .map((x) => (typeof x === 'string' ? x : x?.msg || JSON.stringify(x)))
+      .filter(Boolean)
+      .join(' ')
+  }
+  if (d && typeof d === 'object' && d.msg) return d.msg
+  return error?.message || fallback
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 // fetch: не трогает baseURL/axios; при обрезанном пути в прокси бэкенд принимает POST /api/ с init_data.
 async function postJson(path, data) {
@@ -97,6 +111,7 @@ export const productsApi = {
   list: (featuredOnly = false) =>
     client.get('/products', { params: { featured_only: featuredOnly } }),
   get: (id) => client.get(`/products/${id}`),
+  purchase: (id) => client.post(`/products/${id}/purchase`),
   create: (data) => client.post('/products', data),
   update: (id, data) => client.put(`/products/${id}`, data),
   delete: (id) => client.delete(`/products/${id}`),

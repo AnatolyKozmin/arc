@@ -26,8 +26,28 @@
 
             <div class="modal__notice">
               <span class="modal__notice-icon">ℹ️</span>
-              <p>Покупка товаров возможна только на <strong>ярмарке товаров</strong> во время мероприятия.</p>
+              <p>
+                С баланса спишутся аркоины. Выдача приза — на <strong>ярмарке</strong> во время мероприятия.
+              </p>
             </div>
+
+            <p v-if="buyError" class="modal__error">{{ buyError }}</p>
+
+            <button
+              v-if="canBuy"
+              class="modal__buy-btn"
+              :disabled="buying"
+              @click="buy"
+            >
+              {{ buying ? '…' : `Купить за ${product.price.toLocaleString('ru')} 🪙` }}
+            </button>
+            <button
+              v-else-if="product.quantity > 0 && !canAfford"
+              class="modal__buy-btn modal__buy-btn--muted"
+              disabled
+            >
+              Недостаточно аркоинов
+            </button>
 
             <button class="modal__close-btn" @click="$emit('close')">Закрыть</button>
           </div>
@@ -38,10 +58,52 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { productsApi, apiErrorMessage } from '@/api/client'
+import { useUserStore } from '@/stores/user'
 
 const props = defineProps({ product: { type: Object, default: null } })
-defineEmits(['close'])
+const emit = defineEmits(['close', 'purchased'])
+
+const userStore = useUserStore()
+const buying = ref(false)
+const buyError = ref('')
+
+watch(
+  () => props.product?.id,
+  () => {
+    buyError.value = ''
+  }
+)
+
+const canAfford = computed(() => {
+  const b = userStore.user?.balance ?? 0
+  const p = props.product?.price ?? 0
+  return b >= p
+})
+
+const canBuy = computed(() => {
+  if (!props.product) return false
+  return props.product.quantity > 0 && canAfford.value
+})
+
+async function buy() {
+  if (!props.product || buying.value || !canBuy.value) return
+  buying.value = true
+  buyError.value = ''
+  try {
+    const { data } = await productsApi.purchase(props.product.id)
+    if (userStore.user) userStore.user.balance = data.balance
+    emit('purchased', data)
+    window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
+  } catch (e) {
+    const d = e.response?.data?.detail
+    buyError.value = apiErrorMessage(e, 'Не удалось оформить покупку')
+    window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error')
+  } finally {
+    buying.value = false
+  }
+}
 
 const stockClass = computed(() => {
   if (!props.product) return ''
@@ -168,6 +230,35 @@ const stockText = computed(() => {
 .modal__notice p {
   font-size: 13px;
   line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.modal__error {
+  font-size: 14px;
+  color: var(--color-red);
+  margin: 0;
+  text-align: center;
+}
+
+.modal__buy-btn {
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 14px;
+  background: var(--color-accent);
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+
+.modal__buy-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.modal__buy-btn--muted {
+  background: var(--color-bg);
   color: var(--color-text-secondary);
 }
 

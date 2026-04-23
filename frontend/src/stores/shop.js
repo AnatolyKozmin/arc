@@ -49,5 +49,13 @@ export const useShopStore = defineStore('shop', () => {
     return res.data
   }
 
-  return { products, featured, loading, loadError, selected, fetchAll, fetchProduct }
+  /** После покупки — подставить актуальный остаток без полной перезагрузки списка. */
+  function applyProductUpdate(p) {
+    const i = products.value.findIndex((x) => x.id === p.id)
+    if (i >= 0) products.value[i] = { ...products.value[i], ...p }
+    const j = featured.value.findIndex((x) => x.id === p.id)
+    if (j >= 0) featured.value[j] = { ...featured.value[j], ...p }
+  }
+
+  return { products, featured, loading, loadError, selected, fetchAll, fetchProduct, applyProductUpdate }
 })

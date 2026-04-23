@@ -576,9 +576,51 @@ def delete_product(
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Not found")
+    n_p = db.query(models.ProductPurchase).filter(
+        models.ProductPurchase.product_id == product_id
+    ).count()
+    if n_p:
+        raise HTTPException(
+            status_code=400,
+            detail="Есть покупки этого товара. Сними с продажи (неактивен), не удаляй карточку.",
+        )
     db.delete(product)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/purchases", response_model=List[schemas.ProductPurchaseRow])
+def list_product_purchases(
+    skip: int = 0,
+    limit: int = 300,
+    _: None = Depends(require_panel),
+    db: Session = Depends(get_db),
+):
+    """Кто и что купил (мини-апп магазин)."""
+    rows = (
+        db.query(models.ProductPurchase, models.User)
+        .join(models.User, models.ProductPurchase.user_id == models.User.id)
+        .order_by(models.ProductPurchase.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [
+        schemas.ProductPurchaseRow(
+            id=pur.id,
+            created_at=pur.created_at,
+            price_paid=pur.price_paid,
+            product_id=pur.product_id,
+            product_name=pur.product_name,
+            user_id=u.id,
+            telegram_id=u.telegram_id,
+            username=u.username,
+            first_name=u.first_name,
+            last_name=u.last_name,
+            full_name=u.full_name,
+        )
+        for pur, u in rows
+    ]
 
 
 # ── Achievements ──────────────────────────────────────────────────────────────
