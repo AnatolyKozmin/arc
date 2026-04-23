@@ -14,7 +14,8 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - SECRET_KEY=${SECRET_KEY:-change-this-secret-key}
-      - DATABASE_URL=sqlite:////data/arkadium.db
+      # Смонтированный каталог: см. DATA_DIR. Путь внутри контейнера всегда /data/arkadium.db
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////data/arkadium.db}
       - ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS:-}
       - ORGANIZER_TELEGRAM_IDS=${ORGANIZER_TELEGRAM_IDS:-}
       # Список origin через запятую. Если не задать в .env — https://$DOMAIN и https://www.$DOMAIN

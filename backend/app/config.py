@@ -21,6 +21,8 @@ class SafeEnvSource(EnvSettingsSource):
 class Settings(BaseSettings):
     bot_token: str = "test_bot_token"
     secret_key: str = "change-this-secret-key-in-production"
+    # env: DATABASE_URL. В Docker (compose) задаётся sqlite:////data/arkadium.db — 4 слеша = абсолютный /data/…
+    # Локально: по умолчанию arkadium.db в текущем каталоге (обычно backend/). Свой путь: DATABASE_URL=…
     database_url: str = "sqlite:///./arkadium.db"
     admin_telegram_ids: List[int] = []
     organizer_telegram_ids: List[int] = []

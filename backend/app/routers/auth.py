@@ -12,6 +12,16 @@ from app.config import settings
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _profile_complete_for_registration(u: models.User) -> bool:
+    """Совпадает смысл с ботом / PUT /users/me/register: все поля анкеты на проект."""
+    return bool(
+        (u.full_name or "").strip()
+        and (u.university or "").strip()
+        and u.course is not None
+        and (u.group or "").strip()
+    )
+
+
 @router.post("/telegram", response_model=schemas.TokenResponse)
 def telegram_auth(payload: schemas.TelegramAuthRequest, db: Session = Depends(get_db)):
     tg_user = verify_telegram_init_data(payload.init_data)
@@ -47,6 +57,11 @@ def telegram_auth(payload: schemas.TelegramAuthRequest, db: Session = Depends(ge
             user.qr_token = str(uuid.uuid4())
             db.commit()
             db.refresh(user)
+
+    if not user.is_registered and _profile_complete_for_registration(user):
+        user.is_registered = True
+        db.commit()
+        db.refresh(user)
 
     token = create_access_token(telegram_id)
     return schemas.TokenResponse(access_token=token, user=user)
