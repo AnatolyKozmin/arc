@@ -10,9 +10,17 @@ from app.database import get_db
 router = APIRouter(prefix="/products", tags=["products"])
 
 
+def _active_as_list_filter():
+    """Та же логика, что в list_products: is_active IS NULL OR is_active = 1."""
+    return or_(
+        models.Product.is_active.is_(None),
+        models.Product.is_active == True,  # noqa: E712
+    )
+
+
 def _product_in_shop(p: models.Product) -> bool:
-    """Как в list_products: показываем активные и с is_active=NULL (старые строки)."""
-    return p.is_active is not False
+    """True ⇔ товар в витрине (как list_products: только NULL и True, не снят с продаж)."""
+    return p.is_active is None or p.is_active is True
 
 
 @router.post("/{product_id}/purchase", response_model=schemas.PurchaseResult)
@@ -21,7 +29,10 @@ def purchase_product(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Списать аркоины, уменьшить остаток, записать покупку и транзакцию (атомарно, без гонок)."""
+    """
+    Покупка: −1 к quantity, −price к balance, запись в transactions и product_purchases.
+    Сначала UPDATE остатка (WHERE quantity>0), затем UPDATE баланса; при сбое баланса — rollback (остаток откатится).
+    """
     product = (
         db.query(models.Product)
         .filter(models.Product.id == product_id)
@@ -95,11 +106,9 @@ def list_products(
     _user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    q = db.query(models.Product).filter(
-        or_(models.Product.is_active == True, models.Product.is_active.is_(None))
-    )
+    q = db.query(models.Product).filter(_active_as_list_filter())
     if featured_only:
-        q = q.filter(models.Product.is_featured == True)
+        q = q.filter(models.Product.is_featured == True)  # noqa: E712
     return q.order_by(models.Product.is_featured.desc(), models.Product.id).all()
 
 
