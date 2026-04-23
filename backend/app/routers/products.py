@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -15,7 +16,9 @@ def list_products(
     _user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    q = db.query(models.Product).filter(models.Product.is_active == True)
+    q = db.query(models.Product).filter(
+        or_(models.Product.is_active == True, models.Product.is_active.is_(None))
+    )
     if featured_only:
         q = q.filter(models.Product.is_featured == True)
     return q.order_by(models.Product.is_featured.desc(), models.Product.id).all()

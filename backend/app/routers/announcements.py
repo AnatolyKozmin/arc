@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -14,9 +15,13 @@ def list_announcements(
     _user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # NULL в старых SQLite-строках: == False / == True их не matche'ит, список получался пустой.
     return (
         db.query(models.Announcement)
-        .filter(models.Announcement.is_active == True, models.Announcement.is_draft == False)
+        .filter(
+            or_(models.Announcement.is_active == True, models.Announcement.is_active.is_(None)),
+            or_(models.Announcement.is_draft == False, models.Announcement.is_draft.is_(None)),
+        )
         .order_by(models.Announcement.sort_order, models.Announcement.created_at.desc())
         .all()
     )
