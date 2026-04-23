@@ -6,7 +6,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Аркадиум</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Локальная копия: в регионах, где telegram.org не открывается, иначе нет initData. Обновлять: frontend/scripts/refresh-telegram-webapp.sh -->
+    <script src="/telegram-web-app.js"></script>
     <!-- До Vue: сохранить tgWebAppData из URL (расширенный разбор фрагмента). -->
     <script>
       (function () {

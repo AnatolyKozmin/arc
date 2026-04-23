@@ -1,160 +1,119 @@
-# Infra: nginx на 80/443 (папка рядом с репозиториями приложений)
+# Infra: edge-nginx на 80/443 (папка рядом с репозиторием приложения)
 
-Предполагается структура на сервере:
+Сейчас в доке — **один сайт (Arkadium)**, сертификат в `certs/arkadium/`. Второй домен/проект — см. [examples/optional](examples/optional).
+
+Структура на сервере (типично):
 
 ```text
 /srv/   (или любой корень)
-├── infra/                 ← эта папка: только edge-nginx + сертификаты + nginx.conf
+├── infra/                 ← edge-nginx, только 80/443
 │   ├── docker-compose.yml
-│   ├── nginx.template.conf
-│   ├── nginx.conf         ← собирается из шаблона (не в git)
+│   ├── nginx.conf         ← из примера, не в git; живой файл
 │   └── certs/
-│       ├── arkadium/
-│       ├── febnik/
-│       └── izbirkom/      ← под третий домен, когда добавите server в nginx
-├── arkadium/              ← ваш репозиторий (compose не из этого README)
-└── febnik/                ← ваш репозиторий
+│       └── arkadium/      ← fullchain.crt + privkey.key
+└── arc/                    ← репозиторий Arkadium (compose приложения)
 ```
 
-Все контейнеры приложений должны быть в одной Docker-сети **`arkadium_shared`** (имя можно сменить везде одинаково).
+Сеть Docker **`arkadium_shared`** (создать один раз) — должна быть у edge-nginx и у контейнеров приложения.
 
 ---
 
-## Куда класть сертификаты
+## Куда класть сертификат
 
-В **`infra/certs/`** — каталоги **`arkadium/`** и **`febnik/`** (имена совпадают с путями в `nginx.template.conf`):
+Один комплект **Arkadium** (имена совпадают с путями в [examples/nginx.arkadium-only.conf](examples/nginx.arkadium-only.conf)):
 
 ```text
-infra/certs/
-├── arkadium/
-│   ├── fullchain.crt    ← цепочка (PEM), можно скопировать из fullchain.pem
-│   └── privkey.key      ← приватный ключ (PEM), из privkey.pem
-├── febnik/
-│   ├── fullchain.crt
-│   └── privkey.key
-└── izbirkom/            ← зарезервировано; в шаблоне пока нет блока — добавите позже
+infra/certs/arkadium/
+    fullchain.crt
+    privkey.key
 ```
 
-### Загрузка с **локального** компьютера на сервер (`scp`)
+### Склейка из `certs_2` (Reg.ru / «сертификат + CA + ключ»)
 
-На своей машине (рядом с файлами сертификата, например после выгрузки из Рег.ру или из `~/.acme.sh/...`):
+В репо: [`scripts/build-arkadium-certs-from-certs2.sh`](scripts/build-arkadium-certs-from-certs2.sh) — собирает `certs/arkadium/fullchain.crt` (leaf + `certificate_ca`) и `privkey.key`. Запуск с корня репозитория:
 
 ```bash
-# замените root@it-vmmini на ваш пользователь@хост, если не root
-scp fullchain.pem root@it-vmmini:~/infra/certs/arkadium/fullchain.crt
-scp privkey.pem   root@it-vmmini:~/infra/certs/arkadium/privkey.key
+./infra/scripts/build-arkadium-certs-from-certs2.sh
 ```
 
-Если у вас уже файлы с именами `fullchain.crt` и `privkey.key`:
+Папка `certs_2` в **`.gitignore`**; не коммить ключи.
+
+### С локального ПК на сервер (`scp`)
 
 ```bash
-scp fullchain.crt privkey.key root@it-vmmini:~/infra/certs/arkadium/
+scp fullchain.pem root@SERVER:~/infra/certs/arkadium/fullchain.crt
+scp privkey.pem   root@SERVER:~/infra/certs/arkadium/privkey.key
 ```
 
-На **сервере** после копирования:
+Или после скрипта:
+
+```bash
+scp certs/arkadium/fullchain.crt certs/arkadium/privkey.key root@SERVER:~/infra/certs/arkadium/
+```
+
+На **сервере**:
 
 ```bash
 chmod 644 ~/infra/certs/arkadium/fullchain.crt
 chmod 600 ~/infra/certs/arkadium/privkey.key
 ```
 
-### Уже есть Let’s Encrypt **на этом же сервере**
+### Уже выдан Let’s Encrypt на этой машине
 
 ```bash
-sudo cp /etc/letsencrypt/live/ВАШ-ДОМЕН-АРКАДИУМ/fullchain.pem ~/infra/certs/arkadium/fullchain.crt
-sudo cp /etc/letsencrypt/live/ВАШ-ДОМЕН-АРКАДИУМ/privkey.pem   ~/infra/certs/arkadium/privkey.key
+sudo cp /etc/letsencrypt/live/ВАШ-ДОМЕН/fullchain.pem ~/infra/certs/arkadium/fullchain.crt
+sudo cp /etc/letsencrypt/live/ВАШ-ДОМЕН/privkey.pem   ~/infra/certs/arkadium/privkey.key
 sudo chmod 644 ~/infra/certs/arkadium/fullchain.crt
 sudo chmod 600 ~/infra/certs/arkadium/privkey.key
 ```
 
-Аналогично для **febnik** — в `~/infra/certs/febnik/` те же имена файлов.
+`docker compose` в `infra/` монтирует **`./certs` → `/etc/nginx/certs`** в контейнере; пути `ssl_certificate` в примере менять не нужно, если кладёшь файлы в `certs/arkadium/`.
 
-`docker-compose.yml` монтирует **`./certs`** в контейнер как **`/etc/nginx/certs`**, поэтому править пути в nginx под другую раскладку папок не нужно.
+### Новый домен и срок сертификата
+
+1. **DNS** — A (и при необходимости AAAA) на IP сервера.
+2. **Сертификат** (например `certbot certonly --standalone -d 'ДОМЕН' -d 'www.ДОМЕН'`) — на время standalone освободи **:80** (например `cd ~/infra && docker compose stop`).
+3. Скопируй `fullchain` и `privkey` в `~/infra/certs/arkadium/`, как выше.
+4. **nginx:** скопируй [examples/nginx.arkadium-only.conf](examples/nginx.arkadium-only.conf) в `~/infra/nginx.conf` (там уже **febnik.ru** / **www**; для другого домена — правь `server_name`).
+5. **Приложение Arkadium:** в корневом **`.env`** — `DOMAIN=ваш-новый.домен` (без `https://`); пересоздай с env: `docker compose up -d --force-recreate backend bot`.
+6. **Telegram** (@BotFather): URL мини-аппа `https://ваш-домен/…`
+7. **Перезагрузка edge-nginx:** `cd ~/infra && docker compose exec nginx nginx -t && docker compose exec nginx nginx -s reload`
+
+Проверка срока:  
+`echo | openssl s_client -connect ДОМЕН:443 -servername ДОМЕН 2>/dev/null | openssl x509 -noout -dates`
 
 ---
 
 ## Сеть Docker
 
-Один раз:
-
 ```bash
 docker network create arkadium_shared
 ```
 
-В **каждом** `docker-compose` приложения добавьте:
-
-```yaml
-networks:
-  arkadium_shared:
-    external: true
-    name: arkadium_shared
-```
-
-и у нужных сервисов `networks: [arkadium_shared]`.
+В `docker-compose.yml` репозитория приложения — сеть `arkadium_shared` как `external: true` (см. корневой compose Arkadium).
 
 ---
 
-## Собрать `nginx.conf` и запустить nginx
+## Запустить edge-nginx
 
-Рабочая директория — **`infra/`** (где лежит `docker-compose.yml`).
+Каталог — **`~/infra/`** (где `docker-compose.yml` из репо).
 
-1. Скопируйте сюда файлы **`docker-compose.yml`** и **`nginx.template.conf`** (из этого репозитория или свой аналог).
+1. Скопируй сюда `docker-compose.yml` из репозитория, если ещё нет.
+2. Собери `nginx.conf` — проще всего: скопируй [examples/nginx.arkadium-only.conf](examples/nginx.arkadium-only.conf) в `~/infra/nginx.conf` и сделай `sed` с `__ARKADIUM_DOMAIN__` (см. выше). Старый путь с `nginx.template.conf` + большой `sed` по плейсхолдерам не обязателен, если используешь готовый пример.
+3. Проверка: `docker compose exec nginx nginx -t` (из `~/infra`).
+4. Старт: `docker compose up -d`  
+5. После правок: `docker compose exec nginx nginx -t && docker compose exec nginx nginx -s reload`
 
-2. Подставьте домены и upstream’ы (пример: первый сайт — два контейнера `:80` и `:8000`, второй — febnik `febnik:8080`):
-
-   **Важно:** если `sed` не находит `nginx.template.conf`, перенаправление `> nginx.conf` может **обнулить** файл. Проверяйте: `wc -l nginx.conf`.
-
-   Готовые примеры в репозитории (скопировать на сервер как `~/infra/nginx.conf`):
-   - только **Arkadium** (putevod-ik.ru): [`examples/nginx.putevod-ik.arkadium-only.conf`](examples/nginx.putevod-ik.arkadium-only.conf)
-   - **Arkadium + febnik**: [`examples/nginx.putevod-ik.febnik.conf`](examples/nginx.putevod-ik.febnik.conf)
-
-3. Команда `sed` (в каталоге **`~/infra`**, где лежит **`nginx.template.conf`**):
-
-```bash
-cd /srv/infra
-
-sed -e 's/SITE1_DOMAIN/первый-домен.example/g' \
-    -e 's/SITE2_DOMAIN/febnik.ru/g' \
-    -e 's/SITE1_FRONTEND/имя-контейнера-фронта/g' \
-    -e 's/SITE1_BACKEND/имя-контейнера-api/g' \
-    -e 's/SITE2_UPSTREAM/febnik:8080/g' \
-    nginx.template.conf > nginx.conf
-```
-
-`SITE1_FRONTEND` / `SITE1_BACKEND` — это **`container_name:порт`** без `http://`, как в Docker DNS (например `myapp-web:80`).
-
-4. Проверка синтаксиса:
-
-```bash
-docker run --rm -v "$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine nginx -t
-```
-
-5. Запуск (порты **80** и **443** на хосте займёт только этот compose):
-
-```bash
-docker compose up -d
-```
-
-6. Перезагрузка конфига после правок:
-
-```bash
-docker compose exec nginx nginx -t && docker compose exec nginx nginx -s reload
-```
-
-На время **certbot --standalone** освободите порт 80:
-
-```bash
-docker compose stop
-# certbot ...
-docker compose up -d
-```
+На время **certbot --standalone** порт 80 у edge освободи: `docker compose stop` в `~/infra`, затем снова `docker compose up -d`.
 
 ---
 
-## Чеклист
+## Чеклист (один сайт)
 
-1. `docker network create arkadium_shared`
-2. Поднять приложения (сами команды — из их репозиториев), сеть **`arkadium_shared`**, без публикации **80/443** на хост, если их отдаёт infra-nginx
-3. **`infra/certs/arkadium/`** и **`infra/certs/febnik/`** — в каждой `fullchain.crt` + `privkey.key`
-4. **`sed`** → **`infra/nginx.conf`**
-5. **`cd infra && docker compose up -d`**
+1. `docker network create arkadium_shared` (если ещё нет)
+2. Поднять Arkadium (compose из репо) в сети `arkadium_shared` без публикации 80/443 (их занимает infra)
+3. `~/infra/certs/arkadium/{fullchain.crt,privkey.key}`
+4. `~/infra/nginx.conf` = копия [nginx.arkadium-only.conf](examples/nginx.arkadium-only.conf) (домен febnik.ru)
+5. `cd ~/infra && docker compose up -d`
+
+Два домена (Arkadium + febnik) — только если понадобится: [examples/optional](examples/optional).

@@ -35,6 +35,8 @@ log = logging.getLogger(__name__)
 
 BOT_TOKEN    = os.getenv("BOT_TOKEN", "")
 MINI_APP_URL = os.getenv("MINI_APP_URL", "https://arkadium.example.com")
+# Текст кнопки в меню чата (слева от поля ввода) — BotFather вручную не нужен, ставится при старте бота
+MENU_BUTTON_TEXT = os.getenv("MENU_BUTTON_TEXT", "🎮 Аркадиум")
 API_BASE     = os.getenv("API_BASE", "http://backend:8000/api")
 PANEL_USER   = os.getenv("PANEL_USERNAME", "admin")
 PANEL_PASS   = os.getenv("PANEL_PASSWORD", "arkadium2026")
@@ -1639,7 +1641,7 @@ async def main():
 
     await bot.set_chat_menu_button(
         menu_button=MenuButtonWebApp(
-            text="🎮 Аркадиум",
+            text=MENU_BUTTON_TEXT,
             web_app=WebAppInfo(url=MINI_APP_URL),
         ),
     )
