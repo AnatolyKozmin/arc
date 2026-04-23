@@ -83,7 +83,16 @@ def health():
     return {"status": "ok", "app": "Аркадиум"}
 
 
-# Два пути: nginx/клиенты часто шлют POST /api без «/» в конце; только POST /api/ давало 405 Method Not Allowed.
+# GET /api и GET /api/ без обработчика → 405 (Starlette) — Telegram/браузер иногда дёргают в корень.
+@app.get("/api", include_in_schema=False)
+@app.get("/api/", include_in_schema=False)
+def api_root_get():
+    return {
+        "detail": "Arkadium API. GET /api/health, GET /api/announcements (с токеном), …; POST /api/auth/telegram"
+    }
+
+
+# Два пути: nginx/клиенты шлют POST /api с и без «/»; init_data-совместимость.
 @app.post("/api", include_in_schema=False)
 @app.post("/api/", include_in_schema=False)
 async def api_post_root_compatibility(
