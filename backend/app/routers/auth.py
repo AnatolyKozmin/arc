@@ -18,7 +18,10 @@ def telegram_auth(payload: schemas.TelegramAuthRequest, db: Session = Depends(ge
     if tg_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Telegram initData",
+            detail=(
+                "Invalid Telegram initData. Убедитесь: BOT_TOKEN в контейнере backend = токену этого бота в @BotFather; "
+                "мини-апп открыт кнопкой/меню в Telegram, а не внешним браузером; скрипт /telegram-web-app.js на сайте грузится (200)."
+            ),
         )
 
     telegram_id = tg_user.get("id")

@@ -102,10 +102,18 @@ export const useUserStore = defineStore('user', () => {
 
         devMode.value = false
       } catch (e) {
-        const detail = e.response?.data?.detail ?? e.message ?? 'Ошибка авторизации'
-        error.value = detail
+        const st = e.response?.status
+        const raw = e.response?.data?.detail
+        const fromApi = typeof raw === 'string' ? raw : null
+        if (fromApi) {
+          error.value = fromApi
+        } else if (st === 404) {
+          error.value = 'API не найден (404). Проверьте, что /api/ на nginx идёт на бэкенд (proxy_pass …$request_uri) и сделан reload edge-nginx.'
+        } else {
+          error.value = e.message ?? 'Ошибка авторизации'
+        }
         devMode.value = false
-        console.error('[auth]', detail, e)
+        console.error('[auth]', { status: st, url: e.config?.url, detail: fromApi, e })
       } finally {
         loading.value = false
       }

@@ -1,7 +1,8 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -71,6 +72,17 @@ app.mount("/api/uploads", StaticFiles(directory=str(_upload_root)), name="upload
 @app.get("/api/health")
 def health():
     return {"status": "ok", "app": "Аркадиум"}
+
+
+@app.post("/api/", include_in_schema=False)
+def api_post_root_mistake():
+    """Ловит неверные POST (часто в логах) — валидный логин: POST /api/auth/telegram."""
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={
+            "detail": "POST /api/ не поддерживается. Для мини-аппа: POST /api/auth/telegram с телом {\"init_data\": \"...\"}."
+        },
+    )
 
 
 # Seed demo data if DB is empty
