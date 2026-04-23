@@ -6,6 +6,13 @@
       :initials="userStore.getInitials()"
     />
 
+    <p
+      v-if="announcementsStore.loadError || shopStore.loadError"
+      class="home__error"
+    >
+      {{ announcementsStore.loadError || shopStore.loadError }}
+    </p>
+
     <!-- Объявления -->
     <section class="home__section">
       <div class="section-header">
@@ -16,7 +23,9 @@
         v-else-if="announcementsStore.items.length"
         :items="announcementsStore.items"
       />
-      <div v-else class="home__empty">Нет объявлений</div>
+      <div v-else class="home__empty">
+        {{ announcementsStore.loadError ? 'Не загрузилось' : 'Нет объявлений' }}
+      </div>
     </section>
 
     <!-- Магазин -->
@@ -29,16 +38,18 @@
       <div v-if="shopStore.loading" class="home__scroll-row">
         <div v-for="i in 3" :key="i" class="home__skeleton-card skeleton" />
       </div>
-      <div v-else-if="shopStore.featured.length" class="home__scroll-row">
+      <div v-else-if="shopPreview.length" class="home__scroll-row">
         <div
-          v-for="product in shopStore.featured"
+          v-for="product in shopPreview"
           :key="product.id"
           class="home__card-wrap"
         >
           <ProductCard :product="product" @click="openProduct" />
         </div>
       </div>
-      <p v-else class="home__empty">Товары появятся скоро</p>
+      <p v-else class="home__empty">
+        {{ shopStore.loadError ? 'Не загрузилось' : 'Товары появятся скоро' }}
+      </p>
     </section>
 
     <ProductModal :product="selectedProduct" @close="selectedProduct = null" />
@@ -46,7 +57,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useAnnouncementsStore } from '@/stores/announcements'
@@ -60,6 +71,12 @@ const userStore = useUserStore()
 const announcementsStore = useAnnouncementsStore()
 const shopStore = useShopStore()
 const selectedProduct = ref(null)
+
+/** На главной раньше были только is_featured — без них блок «пустой», хотя товары есть */
+const shopPreview = computed(() => {
+  if (shopStore.featured.length) return shopStore.featured
+  return shopStore.products.slice(0, 8)
+})
 
 function openProduct(product) {
   selectedProduct.value = product
@@ -117,5 +134,15 @@ onMounted(() => {
   padding: 16px 16px;
   color: var(--color-text-secondary);
   font-size: 14px;
+}
+
+.home__error {
+  margin: 8px 16px 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #b91c1c;
+  background: #fef2f2;
+  border-radius: 10px;
 }
 </style>

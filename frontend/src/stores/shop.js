@@ -6,15 +6,23 @@ export const useShopStore = defineStore('shop', () => {
   const products = ref([])
   const featured = ref([])
   const loading = ref(false)
+  const loadError = ref(null)
   const selected = ref(null)
 
   async function fetchAll() {
     if (loading.value) return
     loading.value = true
+    loadError.value = null
     try {
       const res = await productsApi.list()
       products.value = res.data
       featured.value = res.data.filter((p) => p.is_featured)
+    } catch (e) {
+      const d = e.response?.data?.detail
+      loadError.value = typeof d === 'string' ? d : (e.message ?? 'Ошибка загрузки')
+      products.value = []
+      featured.value = []
+      console.error('[shop]', e.response?.status, loadError.value)
     } finally {
       loading.value = false
     }
@@ -26,5 +34,5 @@ export const useShopStore = defineStore('shop', () => {
     return res.data
   }
 
-  return { products, featured, loading, selected, fetchAll, fetchProduct }
+  return { products, featured, loading, loadError, selected, fetchAll, fetchProduct }
 })
