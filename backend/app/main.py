@@ -1,14 +1,23 @@
 from pathlib import Path
 
-from fastapi import FastAPI, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import Base, engine
+from app.database import Base, engine, get_db
 from app.routers import auth, users, leaderboard, products, transactions, achievements, announcements, panel
-from app import models  # noqa: F401 – registers all models for table creation
+from app.routers.auth import telegram_auth
+from app import models, schemas  # noqa: F401 – registers all models for table creation
+
+_POST_API_ROOT_404 = JSONResponse(
+    status_code=status.HTTP_404_NOT_FOUND,
+    content={
+        "detail": "POST /api/ не поддерживается. Для мини-аппа: POST /api/auth/telegram с телом {\"init_data\": \"...\"}."
+    },
+)
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
@@ -75,14 +84,24 @@ def health():
 
 
 @app.post("/api/", include_in_schema=False)
-def api_post_root_mistake():
-    """Ловит неверные POST (часто в логах) — валидный логин: POST /api/auth/telegram."""
-    return JSONResponse(
-        status_code=status.HTTP_404_NOT_FOUND,
-        content={
-            "detail": "POST /api/ не поддерживается. Для мини-аппа: POST /api/auth/telegram с телом {\"init_data\": \"...\"}."
-        },
-    )
+async def api_post_root_compatibility(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Если edge-nginx отрезает хвост пути, запрос падает сюда с тем же телом, что и /api/auth/telegram."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _POST_API_ROOT_404
+
+    if isinstance(body, dict) and body.get("init_data"):
+        try:
+            payload = schemas.TelegramAuthRequest.model_validate(body)
+        except Exception:
+            return _POST_API_ROOT_404
+        return telegram_auth(payload, db)
+
+    return _POST_API_ROOT_404
 
 
 # Seed demo data if DB is empty

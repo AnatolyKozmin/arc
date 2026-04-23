@@ -41,17 +41,30 @@ client.interceptors.response.use(
 export default client
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-// Полный path от короля сайта: combineURLs("/api", "/") → "/api/" (ломает логин).
+// fetch: не трогает baseURL/axios; при обрезанном пути в прокси бэкенд принимает POST /api/ с init_data.
+async function postJson(path, data) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  let resData
+  try {
+    resData = await r.json()
+  } catch {
+    resData = {}
+  }
+  if (!r.ok) {
+    const e = new Error('Request failed')
+    e.response = { status: r.status, data: resData }
+    throw e
+  }
+  return { data: resData }
+}
+
 export const authApi = {
-  telegram: (initData) =>
-    client.request({
-      method: 'post',
-      baseURL: '',
-      url: '/api/auth/telegram',
-      data: { init_data: initData },
-    }),
-  dev: (data) =>
-    client.request({ method: 'post', baseURL: '', url: '/api/auth/dev', data }),
+  telegram: (initData) => postJson('/api/auth/telegram', { init_data: initData }),
+  dev: (data) => postJson('/api/auth/dev', data),
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
