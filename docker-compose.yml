@@ -39,7 +39,8 @@ services:
     container_name: arkadium-${SITE_SLUG:-site1}-bot
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
-      - MINI_APP_URL=${MINI_APP_URL:-https://${DOMAIN}}
+      # URL мини-аппа в Telegram: лучше с / на конце; должен совпадать с @BotFather (Configure Mini App / menu)
+      - MINI_APP_URL=${MINI_APP_URL:-https://${DOMAIN}/}
       - MENU_BUTTON_TEXT=${MENU_BUTTON_TEXT:-🎮 Аркадиум}
       - API_BASE=http://arkadium-${SITE_SLUG:-site1}-backend:8000/api
       - PANEL_USERNAME=${PANEL_USERNAME:-admin}
